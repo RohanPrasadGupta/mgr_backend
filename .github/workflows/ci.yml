@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: moneymgr
+          POSTGRES_PASSWORD: moneymgr
+          POSTGRES_DB: moneymgr
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U moneymgr"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test (unit + API integration against Postgres)
+        run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://moneymgr:moneymgr@localhost:5432/moneymgr_test
+      - name: Migrations are up to date with the schema
+        working-directory: apps/api
+        run: |
+          pnpm db:generate
+          git diff --exit-code -- drizzle || (echo "::error::schema.ts changed without a committed migration (run pnpm db:generate)" && exit 1)
+      - name: Build
+        run: pnpm build
