@@ -20,6 +20,7 @@ import { CategoriesService } from "./modules/categories/categories.service";
 import { CurrenciesController } from "./modules/currencies/currencies.controller";
 import { FxController } from "./modules/fx/fx.controller";
 import { FxService } from "./modules/fx/fx.service";
+import { OpenApiController } from "./modules/openapi/openapi.controller";
 import { HealthController } from "./modules/health/health.controller";
 import { ImportsController } from "./modules/imports/imports.controller";
 import { InvestmentImportsService } from "./modules/imports/investment-imports.service";
@@ -28,6 +29,7 @@ import { InsightsController } from "./modules/insights/insights.controller";
 import { InsightsService } from "./modules/insights/insights.service";
 import { TransactionsController } from "./modules/transactions/transactions.controller";
 import { TransactionsService } from "./modules/transactions/transactions.service";
+import { AccountDeletionService } from "./modules/users/account-deletion.service";
 import { UsersController } from "./modules/users/users.controller";
 
 @Global()
@@ -38,9 +40,9 @@ import { UsersController } from "./modules/users/users.controller";
     { provide: DB, inject: [POOL], useFactory: (pool: Pool) => createDb.fromPool(pool) },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
-    AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService,
+    AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService, AccountDeletionService,
   ],
-  controllers: [HealthController, AuthController, UsersController, CurrenciesController, AccountsController, CategoriesController, TransactionsController, InsightsController, FxController, ImportsController, BudgetsController, RecurringController, InvestmentsController],
+  controllers: [HealthController, OpenApiController, AuthController, UsersController, CurrenciesController, AccountsController, CategoriesController, TransactionsController, InsightsController, FxController, ImportsController, BudgetsController, RecurringController, InvestmentsController],
   exports: [CONFIG, DB, POOL],
 })
 export class AppModule implements OnApplicationShutdown {

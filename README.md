@@ -39,3 +39,6 @@ pnpm --filter @moneymgr/api import:v1 -- --file "/path/Money Manager_8-26-25.xls
 pnpm --filter @moneymgr/api import:v1 -- --file "/path/Money Manager_8-26-25.xls" --email you@example.com
 ```
 Register the user first (via `/v1/auth/register`). Non-base-currency rows need a stored FX rate, otherwise they are reported as invalid, never silently dropped.
+
+## API contract (OpenAPI)
+`GET /openapi.json` (no auth) serves the OpenAPI 3.1 document; `apps/api/openapi.json` is the committed copy. It is generated from the route registry in `packages/shared/src/api/routes.ts`, and every integration test validates real responses against it. After changing an endpoint run `pnpm --filter @moneymgr/api openapi` and regenerate the clients.

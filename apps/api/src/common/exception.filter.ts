@@ -1,6 +1,6 @@
 import { Catch, HttpException, Logger, type ArgumentsHost, type ExceptionFilter } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
-import { AppError, isUniqueViolation } from "./errors";
+import { AppError, isMissingUserViolation, isUniqueViolation } from "./errors";
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -18,6 +18,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = err.getStatus();
       code = status === 404 ? "not_found" : status === 429 ? "rate_limited" : "http_error";
       message = err.message;
+    } else if (isMissingUserViolation(err)) {
+      status = 401;
+      code = "unauthorized";
+      message = "This account no longer exists";
     } else if (isUniqueViolation(err)) {
       status = 409;
       code = "conflict";

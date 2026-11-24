@@ -11,7 +11,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts",
     "import:v1": "tsx --env-file-if-exists=.env tools/import-v1.ts",
-    "fx:refresh": "tsx --env-file-if-exists=.env tools/fx-refresh.ts"
+    "fx:refresh": "tsx --env-file-if-exists=.env tools/fx-refresh.ts",
+    "openapi": "tsx tools/openapi.ts"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",

@@ -181,3 +181,31 @@ describe("profile + currencies", () => {
     expect((await c.patch("/v1/me", { baseCurrency: "ZZZ" }, token)).status).toBe(422);
   });
 });
+
+describe("openapi", () => {
+  it("serves the contract without authentication", async () => {
+    const res = await app.getHttpAdapter().getInstance().inject({ method: "GET", url: "/openapi.json" });
+    expect(res.statusCode).toBe(200);
+    const doc = JSON.parse(res.body);
+    expect(doc.openapi).toBe("3.1.0");
+    expect(Object.keys(doc.paths)).toContain("/transactions/{id}");
+    expect(doc.components.schemas.Transaction).toBeDefined();
+  });
+});
+
+describe("cors", () => {
+  const preflight = (origin: string, method: string) => app.getHttpAdapter().getInstance().inject({ method: "OPTIONS", url: "/v1/accounts/00000000-0000-0000-0000-000000000000", headers: { origin, "access-control-request-method": method, "access-control-request-headers": "authorization,content-type" } });
+  it("allows PATCH and DELETE preflights from configured origins (browser apps on another origin)", async () => {
+    for (const method of ["PATCH", "DELETE", "POST", "GET"]) {
+      const res = await preflight("http://localhost:3000", method);
+      expect(res.statusCode, method).toBe(204);
+      expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+      expect(String(res.headers["access-control-allow-methods"])).toContain(method);
+      expect(String(res.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
+    }
+  });
+  it("does not grant access to other origins", async () => {
+    const res = await preflight("https://evil.example", "DELETE");
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});

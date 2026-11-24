@@ -22,6 +22,8 @@ export const updateMeSchema = z
     weekStart: z.number().int().min(0).max(6),
   })
   .partial();
+/** Account deletion re-authenticates with the password; it is irreversible. */
+export const deleteAccountSchema = z.object({ password: z.string().min(1).max(128) });
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;

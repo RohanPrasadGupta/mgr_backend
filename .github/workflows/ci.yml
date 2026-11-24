@@ -47,5 +47,9 @@ jobs:
         run: |
           pnpm db:generate
           git diff --exit-code -- drizzle || (echo "::error::schema.ts changed without a committed migration (run pnpm db:generate)" && exit 1)
+      - name: OpenAPI spec is up to date with the route registry
+        run: |
+          pnpm --filter @moneymgr/api openapi
+          git diff --exit-code -- apps/api/openapi.json || (echo "::error::openapi.json is stale (run pnpm --filter @moneymgr/api openapi)" && exit 1)
       - name: Build
         run: pnpm build

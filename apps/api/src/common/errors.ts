@@ -18,3 +18,10 @@ export function isUniqueViolation(e: unknown): boolean {
   const code = (x: unknown) => (x as { code?: string } | null)?.code;
   return code(e) === "23505" || code((e as { cause?: unknown } | null)?.cause) === "23505";
 }
+
+/** Postgres foreign_key_violation on a user reference — e.g. a still-valid access token for an account that was deleted. */
+export function isMissingUserViolation(e: unknown): boolean {
+  const info = (x: unknown) => x as { code?: string; constraint?: string } | null;
+  const c = info(e)?.code === "23503" ? info(e) : info((e as { cause?: unknown } | null)?.cause);
+  return c?.code === "23503" && /user_id/.test(c.constraint ?? "");
+}
