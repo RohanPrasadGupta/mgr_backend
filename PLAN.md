@@ -1,0 +1,154 @@
+# MoneyMgr v2 — Backend Plan (living document)
+
+Companion docs: `BACKEND_ANALYSIS.md` (what exists today), `../mgr_frontEnd/PLAN.md` (clients).
+Status legend: `[ ]` todo · `[~]` in progress · `[x]` done. Edit freely; add features under **Backlog**.
+
+## 1. Goals
+- One backend for **iOS, Android and web**; local first (Docker Compose), AWS later with no code changes.
+- Fix the v1 weaknesses: no auth, no real multi-currency, string-matched categories, JS aggregation, inconsistent responses, no tests.
+- Server owns all money math (balances, cost basis, P/L, budgets, savings rate).
+
+## 2. Stack (decided unless noted)
+| Concern | Choice |
+|---|---|
+| Language / runtime | TypeScript, Node 22 |
+| Framework | NestJS + Fastify adapter (alt: Hono) |
+| DB | PostgreSQL 16 |
+| ORM / migrations | Drizzle (alt: Prisma) — SQL migrations committed |
+| Validation | Zod, shared with clients via `packages/shared`; OpenAPI generated from schemas |
+| Cache / queues | Redis, BullMQ (recurring posting, FX refresh, price refresh, reports, notifications) |
+| Auth | Email+password (Argon2id), Google, Sign in with Apple; JWT access (15 min) + rotating refresh tokens stored hashed |
+| Files | S3 API (MinIO local) — receipts, exports, avatars; presigned uploads |
+| Email / push | Mailpit local → SES; Expo Push |
+| Observability | Pino, OpenTelemetry, Sentry, `/health` + `/ready` |
+| Tests | Vitest, Testcontainers (real Postgres/Redis), supertest |
+| Local | Docker Compose: postgres, redis, minio, mailpit |
+| AWS later | ECS Fargate, RDS, ElastiCache, S3+CloudFront, SES, Secrets Manager, Terraform/CDK, GitHub Actions |
+
+## 3. Repo layout (monorepo shared with frontend plan)
+```
+moneymgr/
+  apps/api            NestJS (modules below)
+  apps/worker         BullMQ processors (same codebase, separate entry)
+  apps/web            Next.js          (see frontend plan)
+  apps/mobile         Expo             (see frontend plan)
+  packages/shared     Zod schemas, types, money utils, constants, generated API client
+  packages/config     eslint, tsconfig, prettier
+  infra/              docker-compose.yml, terraform/ (later)
+```
+API modules: `auth, users, accounts, categories, tags, transactions, transfers, currencies/fx, budgets, recurring, goals, debts, investments (assets, holdings, trades, prices), notes, attachments, imports, exports/reports, notifications, insights/ai, billing, admin`.
+
+## 4. Conventions
+- **Money**: `amount_minor BIGINT` + ISO-4217 `currency` (never floats). Per-currency exponent table (THB 2, NPR 2, JPY 0…). Every transaction also stores `fx_rate` and `base_amount_minor` (user base currency at write time).
+- **Dates**: store `timestamptz` UTC plus `occurred_on DATE` computed in the user's timezone, so month buckets never drift.
+- **IDs**: UUIDv7. Soft delete (`deleted_at`) on user data for sync; `updated_at`, `version` on syncable rows.
+- **Tenancy**: every table has `user_id` (later `workspace_id`); every query scoped; composite indexes lead with it; Postgres RLS as defence in depth.
+- **Envelope**: success `{ data, meta? }`; error `{ error: { code, message, details? } }`; cursor pagination `?cursor&limit`; RFC3339 dates; idempotency key header on POSTs that create money.
+- **Versioned** `/v1`. OpenAPI published at `/docs`.
+
+## 5. Data model (v1 schema sketch)
+```
+users(id, email, password_hash?, name, base_currency, timezone, locale, week_start, created_at, deleted_at)
+auth_identities(id, user_id, provider[google|apple|password], provider_user_id)
+sessions(id, user_id, refresh_hash, device, expires_at, revoked_at)
+workspaces(id, name, owner_id) + workspace_members(workspace_id, user_id, role)   -- phase 6, keep user_id now
+
+currencies(code PK, name, symbol, minor_unit)            -- global
+fx_rates(base, quote, rate, as_of, source)               -- daily snapshots
+user_currencies(user_id, code, is_default)
+
+accounts(id, user_id, name, type[cash|bank|wallet|card|loan|investment], currency, opening_balance_minor,
+         archived, include_in_net_worth, icon, color, sort)
+categories(id, user_id, parent_id?, name, kind[income|expense], icon, color, archived)
+tags(id, user_id, name) ; transaction_tags(transaction_id, tag_id)
+
+transactions(id, user_id, account_id, category_id?, kind[income|expense|transfer_out|transfer_in],
+             amount_minor, currency, fx_rate, base_amount_minor, occurred_at, occurred_on, note,
+             transfer_group_id?, recurring_id?, location?, created_at, updated_at, deleted_at, version)
+attachments(id, user_id, transaction_id, s3_key, mime, size)
+recurring_rules(id, user_id, template jsonb, rrule, next_run_on, end_on?, active)
+budgets(id, user_id, category_id?, period[month|week|custom], amount_minor, currency, start_on, end_on?, rollover)
+goals(id, user_id, name, target_minor, currency, target_date, account_id?)
+debts(id, user_id, direction[lent|borrowed], counterparty, principal_minor, currency, due_on, interest_pct, status)
+notes(id, user_id, title, content, linked_type?, linked_id?, pinned, updated_at)
+
+-- investments (replaces stock / coin / SIP / SSF ledgers)
+assets(id, symbol, name, class[stock|crypto|fund|sip|retirement|gold|fd|other], exchange, currency)   -- global catalogue + user-custom
+holdings(id, user_id, asset_id, account_id?, cost_method[wavg|fifo|manual])
+investment_trades(id, user_id, holding_id, type[buy|sell|dividend|bonus|fee|contribution|withdrawal],
+                  quantity, price_minor, fee_minor, currency, traded_on, note, include_in_avg bool)
+recurring_contributions(id, user_id, holding_id, amount_minor, months_paid?, day_of_month)   -- SIP / SSF
+asset_prices(asset_id, as_of, price_minor, source)
+
+imports(id, user_id, source, status, mapping jsonb, stats jsonb)
+notifications(id, user_id, type, payload, read_at) ; push_tokens(user_id, token, platform)
+subscriptions(user_id, plan, status, provider, renews_at)  -- RevenueCat webhook
+audit_log(id, user_id, action, entity, entity_id, at, meta)
+```
+**v1 → v2 migration map**: `Data`→`transactions` (account string → `accounts` upsert, category name → `categories` upsert after stripping emoji prefix into `icon`, currency default THB); `Category`→`categories`; `Currency`→`user_currencies`; `Notes`→`notes`; `StockTransaction`→`investment_trades` (`useForAvgPrice`→`include_in_avg`); `StockCapital/CoinCapital`→trades of type `contribution/withdrawal` on cash-in holdings; `SipCapital`→`recurring_contributions/trades` per fund name; `SsfCapital`→trade rows (`amount × monthsPaid`). Seed list of the author's categories is in `../mgr_frontEnd/FRONTEND_ANALYSIS.md` §11 (`categoryMapping.js`). Keep an idempotent migration script `tools/migrate-v1`.
+
+## 6. API surface (v1) — grouped
+- **Auth**: `POST /auth/register|login|refresh|logout`, `POST /auth/oauth/{google|apple}`, `POST /auth/forgot|reset`, `DELETE /me` (account deletion + data export).
+- **Me/settings**: `GET/PATCH /me`, devices, push tokens.
+- **Accounts**: CRUD, `GET /accounts/:id/balance`, archive, reorder.
+- **Categories/tags**: CRUD, merge, reorder.
+- **Transactions**: `GET /transactions?from&to&accountId&categoryId&type&q&min&max&tag&cursor`, CRUD, bulk edit/delete, `POST /transfers`, attachments (presign).
+- **Recurring**: CRUD, `POST /recurring/:id/run-now`, preview next dates.
+- **Budgets**: CRUD, `GET /budgets/status?month=`.
+- **Insights**: `/insights/summary?period`, `/insights/by-category`, `/insights/trend?months`, `/insights/cashflow`, `/insights/net-worth`, `/insights/savings-rate` (replace v1 `dataPerYear`, `dataAnalysis`, `dataReportAll`).
+- **FX/currencies**: `GET /currencies`, `GET /fx?base&quote&date`, user-currency CRUD (single default enforced in a transaction).
+- **Goals / debts / notes**: CRUD.
+- **Investments**: assets search, holdings CRUD, trades CRUD, `GET /portfolio/summary`, `/portfolio/holdings/:id` (avg cost, qty, realised/unrealised P/L, XIRR), `/portfolio/history`, SIP calculator `POST /calc/sip`, price refresh job.
+- **Import/export**: `POST /imports` (upload, detect, map, dry-run, commit), `GET /exports?format=csv|xlsx|pdf&range` (async job + download URL).
+- **Sync (mobile)**: `GET /sync/pull?since=`, `POST /sync/push` (batched ops, client ids, version conflict result).
+- **Billing**: RevenueCat webhook, `GET /entitlements`.
+- **Ops**: `/health`, `/ready`, `/docs`.
+
+## 7. Business rules to implement exactly
+- Account balance = opening + Σ(income) − Σ(expense) ± transfers; computed with SQL, cached per account with tag invalidation on write.
+- Savings rate = (income − expense) / income (null if income = 0); thresholds in client: ≥20% healthy, 0–20% low buffer, <0 overspending (match v1).
+- Cost basis (per holding): `wavg` = Σ(buy qty·price+fees)/Σ buy qty; `manual` = only trades with `include_in_avg`; `fifo` lots. Realised P/L = sell proceeds − cost basis × qty sold; remaining value = basis × remaining qty.
+- Coin/crypto transaction charge is a fee on the trade (v1 summed it for both sides; fix).
+- SIP calc (annuity-due): `r = annual/12`, `FV = P·((1+r)^n − 1)/r·(1+r)`; `r=0 → P·n`.
+- Single default currency per user (transactional update).
+- Month/year buckets use `occurred_on` in the user's timezone.
+- Reports never load full tables in app memory: SQL `GROUP BY`, indexed by `(user_id, occurred_on)`.
+
+## 8. Security & compliance
+Argon2id, refresh-token rotation + reuse detection, rate limits (login, import), Helmet, CORS allow-list per env, zod on every input, RLS, secrets via env/Secrets Manager (no credentials in code — v1 had a hardcoded Atlas host), audit log for auth/billing/deletion, encrypted backups, GDPR-style export + delete, App Store requirements (account deletion, privacy policy). No bank credential storage.
+
+## 9. Phases
+**P0 Foundation** — [x] pnpm workspace (Turborepo deferred), [x] docker-compose (pg/redis/minio/mailpit; only pg used so far), [x] Nest+Fastify skeleton, env validation, helmet/cors/rate-limit, /health /ready, [x] Drizzle migrations + currency seed, [x] auth (Argon2id, JWT access, rotating refresh with reuse detection; own implementation, not Better Auth), [ ] CI (lint, test, build), [~] shared package (money, dates, zod schemas done; OpenAPI + generated client todo)
+**P1 Ledger** — [x] users/settings (`/me`), [x] currencies + FX (daily USD-based rates from open.er-api.com, cross rates, as-of/approximate fallback, 12h auto refresh, `GET /fx`; explicit `fxRate` still overrides), [x] accounts, [~] categories (sub-categories done; tags todo), [~] transactions + transfers (done; attachments todo), [x] insights (summary, by-category, trend), [x] v1 importer (`POST /imports/transactions` with dry-run + idempotent dedupe, CLI `pnpm import:v1` for the xls; verified on the real 2,080-row file, totals match to the cent) — Mongo-direct import not built
+**P2 Planning** — [x] budgets (month/week/custom, overall or per category incl. sub-categories, ok/warning/over status), [x] recurring (daily/weekly/monthly/yearly + interval, month-end clamping, backfill option, in-process scheduler every 15 min + `POST /recurring/run-due`; no BullMQ yet), [ ] goals, [ ] debts, [ ] notes, [ ] exports/reports, [ ] notifications + push
+**P3 Mobile readiness** — [ ] sync endpoints, [ ] Google/Apple login, [ ] biometric-friendly session handling, [ ] RevenueCat webhook + entitlements
+**P4 Investments** — [x] assets + trades (buy/sell/bonus/dividend/fee for unit assets; contribution/withdrawal/dividend/fee for value assets like SIP/SSF/capital), [x] cost-basis engine in `packages/shared` (wavg, FIFO, v1-style `manual` average) with oversell protection, [x] manual prices (`POST /investments/assets/:id/prices`), per-asset + portfolio P/L, return %, XIRR, allocation, [x] v1 importers (stock-transactions, stock-capital, coin-capital, sip-capital, ssf-capital; mongoexport JSON accepted), [x] `POST /calc/sip`, [ ] price providers (global stocks/crypto; NEPSE manual/scrape adapter), [ ] SIP/SSF scheduled contributions + reminders, [ ] portfolio value history chart
+**P5 AI / sharing** — [ ] auto-categorise, [ ] receipt OCR, [ ] insights chat, [ ] workspaces + shared budgets + split expenses
+**P6 AWS** — [ ] Dockerfiles, [ ] Terraform (VPC, RDS, ElastiCache, ECS, S3/CloudFront, SES), [ ] staging/prod, [ ] backups, alarms, [ ] load test
+
+## 10. Definition of done (per feature)
+Migration + RLS, Zod schema in `packages/shared`, OpenAPI updated, unit tests for money/business logic, integration test against real Postgres, authz test (cannot read another user's rows), logged + traced, documented here.
+
+## 11. Open decisions
+- NestJS vs Hono; Drizzle vs Prisma.
+- Auth: self-run (Better Auth) vs Cognito from day one.
+- Price data providers & licensing (global stocks/crypto; NEPSE has no official API).
+- Sync design: simple last-write-wins with versions vs CRDT/PowerSync.
+- Pricing/tiers (free vs Pro).
+- Supported locales at launch (en, th, ne?).
+
+## 11b. Status log
+- 2026-11-24: P0 + most of P1 implemented. 15 API integration tests (real Postgres) + 5 shared unit tests pass; `pnpm build` produces a running `dist/main.js`; verified live register → accounts → 401 without token.
+- Known gaps: stricter rate limit on `/auth/*` (global 300/min only), no RLS yet, no email verification/password reset, account/category rows expose `userId`/`deletedAt`, Redis not wired, no CI, no OpenAPI.
+
+- 2026-11-24 (later): FX + importer done. 25 API tests + 6 shared tests pass. Real v1 xls imported into a throwaway user: 2,080/2,080 rows, income/expense totals identical to the spreadsheet, re-run imported 0 (idempotent). Throwaway user deleted.
+- FX limits: provider gives latest rates only, so older transactions use the earliest stored rate (flagged `approximate`); history accrues from now. No historical backfill.
+
+- 2026-11-24 (later): budgets + recurring done. 34 API tests + 9 shared tests pass; live smoke on built `dist` OK (rule created, run-due posted 1, budget status correct, smoke user removed).
+- Budgets/recurring limits: budgets compare in the user's base currency using stored `baseAmountMinor` (changing base currency later does not restate old budgets); no rollover; no alert delivery yet (state is exposed via `/budgets/status`, push/email needs the notifications module); recurrence is frequency+interval, not full RRULE; the scheduler is per-process (idempotent via deterministic clientId, so multiple instances are safe but wasteful — move to BullMQ/worker in P6).
+
+- 2026-11-24 (later): investments done. 46 API + 21 shared tests pass. Model note: plan's separate `holdings` table was folded into `assets` (one asset = one position, with `costMethod`); trades store no FX rate — portfolio converts at today's rate (flagged `approximate`).
+- Investment limits: prices are manual only; portfolio XIRR uses today's FX for all flows and carries unpriced holdings at cost; `wavg` uses a *running* average (v1 used one overall average of all buys, so P/L can differ when buys follow sells); v1 stock-capital/coin-capital are modelled as value assets (`STOCK-CAPITAL`, `COIN-CAPITAL`), not as cash accounts; no historical cost basis in base currency; no tax lots/wash rules.
+
+## 12. Backlog (add ideas here)
+- Open-banking aggregation (where supported), Android SMS parsing, home-screen widgets, receipts → line-item split, tax reports, net-worth snapshots, scheduled email reports, shared/family spaces, public API tokens, CSV templates for common banks.
