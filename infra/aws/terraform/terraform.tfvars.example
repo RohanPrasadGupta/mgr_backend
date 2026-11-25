@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) and adjust.
+region        = "ap-southeast-1"
+instance_type = "t4g.small"
+
+# Your public IP, to lock the admin dashboard to it (find it at https://checkip.amazonaws.com). Leave [] to allow anyone.
+admin_allowed_cidrs = []
+
+# Email me when the month's spend heads past this.
+monthly_budget_usd = 30
+budget_alert_email = ""
+
+# Later, with your own domain: domain = "example.com"

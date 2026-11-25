@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/uploads
+**/.test-uploads
+**/coverage
+.git
+.claude
+infra/aws/terraform/.terraform
+infra/aws/terraform/*.tfstate*

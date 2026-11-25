@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, type SQL } from "drizzle-orm";
 import {
-  computePosition, convertMinor, defaultTracking, toLocalDate, xirr,
+  computePosition, convertMinor, defaultTracking, monthRange, toLocalDate, xirr,
   type Cashflow, type CreateAssetInput, type CreateTradeInput, type EngineTrade, type ListTradesInput, type Position,
   type SetPriceInput, type UpdateAssetInput, type UpdateTradeInput,
 } from "@moneymgr/shared";
@@ -244,5 +244,62 @@ export class InvestmentsService {
       holdings: holdings.map((h) => this.strip(h)),
       excluded,
     };
+  }
+
+  /**
+   * Portfolio value at each month end, replayed from the user's own records (no market data): for every date, each asset's
+   * position from the trades up to then, valued at the latest price/value entered on or before that date (carried at cost
+   * when there is none yet — the same rule as `portfolio()`), converted at that date's stored FX rate. The last point is today,
+   * so it matches the portfolio totals. Months before the first trade are left out.
+   */
+  async portfolioHistory(userId: string, months: number) {
+    const user = await this.getUser(userId);
+    const today = toLocalDate(new Date(), user.timezone);
+    const base = user.baseCurrency;
+    const list = await this.db.select().from(assets).where(and(eq(assets.userId, userId), isNull(assets.deletedAt), eq(assets.archived, false)));
+    const ids = list.map((a) => a.id);
+    const allTrades = ids.length ? await this.db.select().from(trades).where(and(eq(trades.userId, userId), isNull(trades.deletedAt), inArray(trades.assetId, ids))).orderBy(asc(trades.createdAt), asc(trades.id)) : [];
+    const allPrices = ids.length ? await this.db.select({ assetId: assetPrices.assetId, asOn: assetPrices.asOn, priceMinor: assetPrices.priceMinor }).from(assetPrices).where(inArray(assetPrices.assetId, ids)).orderBy(asc(assetPrices.asOn)) : [];
+
+    // month ends, oldest first; the current month ends today
+    const [ty, tm] = today.split("-").map(Number) as [number, number];
+    const dates: string[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const idx = ty * 12 + (tm - 1) - i;
+      const y = Math.floor(idx / 12), m = (idx % 12) + 1;
+      dates.push(i === 0 ? today : monthRange(y, m).to);
+    }
+    const firstTrade = allTrades.reduce<string | null>((min, t) => (min === null || t.tradedOn < min ? t.tradedOn : min), null);
+    const visible = firstTrade === null ? [] : dates.filter((d) => d.slice(0, 7) >= firstTrade.slice(0, 7)); // from the first trade's month on
+
+    const excluded: { assetId: string; symbol: string; reason: string }[] = [];
+    const rateCache = new Map<string, number | null>();
+    const rate = async (cur: string, date: string) => {
+      const k = `${cur}|${date}`;
+      if (!rateCache.has(k)) rateCache.set(k, (await this.fx.getRate(cur, base, date))?.rate ?? null);
+      return rateCache.get(k)!;
+    };
+    const points: { date: string; valueMinor: number; investedMinor: number }[] = [];
+    for (const date of visible) {
+      let value = 0, invested = 0;
+      for (const a of list) {
+        const rows = allTrades.filter((t) => t.assetId === a.id && t.tradedOn <= date);
+        if (rows.length === 0) continue;
+        const p = computePosition(toEngine(rows), a.tracking, a.costMethod);
+        let price: number | null = null;
+        for (const pr of allPrices) if (pr.assetId === a.id && pr.asOn <= date) price = Number(pr.priceMinor);
+        const mv = price === null ? null : a.tracking === "units" ? p.quantity * price : price;
+        const fx = await rate(a.currency, date);
+        if (fx === null) {
+          if (!excluded.some((e) => e.assetId === a.id)) excluded.push({ assetId: a.id, symbol: a.symbol, reason: `no FX rate ${a.currency}→${base}` });
+          continue;
+        }
+        const cost = convertMinor(r0(p.remainingCostMinor), a.currency, base, fx);
+        invested += cost;
+        value += mv === null ? cost : convertMinor(r0(mv), a.currency, base, fx);
+      }
+      points.push({ date, valueMinor: value, investedMinor: invested });
+    }
+    return { baseCurrency: base, asOf: today, points, approximate: true, excluded };
   }
 }

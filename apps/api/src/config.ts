@@ -28,8 +28,27 @@ const schema = z.object({
   /** Failed sign-ins per email before a 15-minute lockout. */
   LOGIN_MAX_FAILURES: z.coerce.number().int().min(1).default(5),
   /** Where transaction attachments are stored (local disk until S3 is configured). */
+  // Which proxies may set X-Forwarded-For: "true" (any — local dev only), "false", or a comma-separated list of IPs/CIDRs.
+  // In production list ONLY the reverse proxy / gateway network, or clients can forge their IP (rate limits, audit log).
+  TRUST_PROXY: z.string().default("true").transform((v): boolean | string => (v === "true" ? true : v === "false" ? false : v)),
   UPLOAD_DIR: z.string().default("./uploads"),
-}).transform((c) => ({ ...c, AUTH_RATE_LIMIT_PER_MIN: c.AUTH_RATE_LIMIT_PER_MIN ?? (c.NODE_ENV === "test" ? 1000 : 10) }));
+  /** Signs admin tokens and encrypts admin 2FA secrets. Must differ from JWT_SECRET so a customer token can never pass as an admin's. */
+  ADMIN_SECRET: z.string().min(32, "ADMIN_SECRET must be at least 32 characters").optional(),
+  /** Admin access tokens are short; the admin site refreshes them. Sessions end after this many hours regardless. */
+  ADMIN_ACCESS_TTL_SEC: z.coerce.number().int().default(600),
+  ADMIN_SESSION_HOURS: z.coerce.number().int().min(1).max(72).default(12),
+  /** How long one support view of a user's data stays open. */
+  ADMIN_SUPPORT_MINUTES: z.coerce.number().int().min(1).max(120).default(30),
+}).transform((c, ctx) => {
+  if (!c.ADMIN_SECRET && c.NODE_ENV === "production") ctx.addIssue({ code: "custom", path: ["ADMIN_SECRET"], message: "ADMIN_SECRET is required in production" });
+  if (c.ADMIN_SECRET && c.ADMIN_SECRET === c.JWT_SECRET) ctx.addIssue({ code: "custom", path: ["ADMIN_SECRET"], message: "ADMIN_SECRET must differ from JWT_SECRET" });
+  return {
+    ...c,
+    AUTH_RATE_LIMIT_PER_MIN: c.AUTH_RATE_LIMIT_PER_MIN ?? (c.NODE_ENV === "test" ? 1000 : 10),
+    // development/test fallback: a key derived from JWT_SECRET (still a different key, so user tokens never verify as admin ones)
+    ADMIN_SECRET: c.ADMIN_SECRET ?? `admin:${c.JWT_SECRET}`,
+  };
+});
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

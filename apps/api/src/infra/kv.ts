@@ -29,6 +29,13 @@ export const keys = (prefix: string) => ({
   resetToken: (hash: string) => `${prefix}auth:reset:${hash}`,
   verifyToken: (hash: string) => `${prefix}auth:verify:${hash}`,
   mailCooldown: (kind: string, id: string) => `${prefix}auth:mail-cooldown:${kind}:${id}`,
+  /** Set while a suspension may still have live access tokens (they're refused by the auth guard). */
+  userSuspended: (userId: string) => `${prefix}auth:suspended:${userId}`,
+  adminLoginFailures: (email: string) => `${prefix}admin:login-fail:${email}`,
+  /** A 2FA code accepted for an admin can't be replayed within its validity window. */
+  adminTotpUsed: (adminId: string, code: string) => `${prefix}admin:totp-used:${adminId}:${code}`,
+  /** An admin's open support view of one user's data (expires on its own). */
+  supportGrant: (adminId: string, userId: string) => `${prefix}admin:support:${adminId}:${userId}`,
   rateLimitNamespace: `${prefix}rl:`,
 });
 export type Keys = ReturnType<typeof keys>;

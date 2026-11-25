@@ -1,0 +1,103 @@
+# Runs on the server in /opt/moneymgr. Variables come from .env, written by up.sh (deploy settings + generated secrets).
+name: moneymgr
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" } # keep logs from filling the disk
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24 # pinned: the API trusts X-Forwarded-For only from this network (Caddy, web, admin)
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /data/caddy:/data # HTTPS certificates
+    depends_on: [api, web, admin]
+    mem_limit: 128m
+    logging: *logging
+
+  api:
+    image: ${REGISTRY}/${PREFIX}/api:${API_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - path: /data/app.env # optional overrides you add on the server (e.g. SMTP settings)
+        required: false
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://moneymgr:${POSTGRES_PASSWORD}@postgres:5432/moneymgr
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_SECRET: ${ADMIN_SECRET}
+      APP_URL: https://app.${BASE_DOMAIN}
+      CORS_ORIGINS: https://app.${BASE_DOMAIN}
+      TRUST_PROXY: 172.28.0.0/24
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - /data/uploads:/data/uploads
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    mem_limit: 512m
+    logging: *logging
+
+  web:
+    image: ${REGISTRY}/${PREFIX}/web:${WEB_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    depends_on: [api]
+    mem_limit: 384m
+    logging: *logging
+
+  admin:
+    image: ${REGISTRY}/${PREFIX}/admin:${ADMIN_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    depends_on: [api]
+    mem_limit: 256m
+    logging: *logging
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moneymgr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: moneymgr
+    # sized for a 2 GB machine shared with everything else
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "effective_cache_size=384MB", "-c", "max_connections=40", "-c", "work_mem=4MB"]
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moneymgr"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: 512m
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # rate limits, sign-in lockouts and one-time email tokens; everything has a TTL, so evicting would lose tokens: refuse instead
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - /data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: 96m
+    logging: *logging

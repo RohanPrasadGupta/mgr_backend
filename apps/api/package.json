@@ -12,7 +12,8 @@
     "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts",
     "import:v1": "tsx --env-file-if-exists=.env tools/import-v1.ts",
     "fx:refresh": "tsx --env-file-if-exists=.env tools/fx-refresh.ts",
-    "openapi": "tsx tools/openapi.ts"
+    "openapi": "tsx tools/openapi.ts",
+    "admin": "tsx --env-file-if-exists=.env tools/admin.ts"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.2",

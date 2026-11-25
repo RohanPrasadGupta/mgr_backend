@@ -1,0 +1,30 @@
+# HTTPS for the three hostnames; certificates come from Let's Encrypt automatically (ZeroSSL as fallback).
+# BASE_DOMAIN is <your-ip>.sslip.io until you use your own domain.
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
+
+app.{$BASE_DOMAIN} {
+	import common
+	reverse_proxy web:3000
+}
+
+api.{$BASE_DOMAIN} {
+	import common
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy api:8000
+}
+
+admin.{$BASE_DOMAIN} {
+	import common
+	@outside not remote_ip {$ADMIN_ALLOWED_CIDRS}
+	respond @outside "Not available" 403
+	reverse_proxy admin:3000
+}

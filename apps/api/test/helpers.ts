@@ -10,7 +10,7 @@ export async function makeApp() {
   await app.getHttpAdapter().getInstance().ready();
   return app;
 }
-export const resetDb = (app: NestFastifyApplication) => app.get<Db>(DB).execute(sql`truncate table users cascade`);
+export const resetDb = (app: NestFastifyApplication) => app.get<Db>(DB).execute(sql`truncate table users, admins, audit_log cascade`);
 
 /**
  * Every API call made by any test is checked against the OpenAPI contract (route registry in @moneymgr/shared):

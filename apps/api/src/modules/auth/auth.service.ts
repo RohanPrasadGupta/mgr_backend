@@ -12,6 +12,8 @@ import { MAILER, actionEmail, type Mailer } from "../../infra/mailer";
 import { newRefreshToken, sha256, signAccessToken } from "./tokens";
 
 const LOCK_WINDOW_SEC = 15 * 60;
+/** Only after a correct password, so it can't be used to probe which emails are suspended. */
+export const suspended = () => new AppError(403, "account_suspended", "This account has been suspended. Contact support if you think this is a mistake.");
 const RESET_TTL_SEC = 60 * 60; // 1 hour
 const VERIFY_TTL_SEC = 48 * 60 * 60; // 2 days
 const MAIL_COOLDOWN_SEC = 60; // one email per minute per address and kind
@@ -71,6 +73,7 @@ export class AuthService {
       throw unauthorized("Invalid email or password");
     }
     await this.kv.del(failKey);
+    if (user.suspendedAt) throw suspended();
     return { user: publicUser(user), ...(await this.issueTokens(user.id, randomUUID(), userAgent)) };
   }
 
@@ -83,6 +86,8 @@ export class AuthService {
       throw unauthorized("Refresh token reuse detected");
     }
     if (row.expiresAt < new Date()) throw unauthorized("Refresh token expired");
+    const [owner] = await this.db.select({ suspendedAt: users.suspendedAt }).from(users).where(eq(users.id, row.userId));
+    if (owner?.suspendedAt) throw suspended();
     await this.db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, row.id));
     return this.issueTokens(row.userId, row.familyId, userAgent);
   }

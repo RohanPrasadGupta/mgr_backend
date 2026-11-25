@@ -94,6 +94,13 @@ export const Portfolio = named("Portfolio", obj({
   allocation: z.array(obj({ class: z.enum(assetClasses), valueMinor: money, pct: z.number() })), holdings: z.array(Holding),
   excluded: z.array(obj({ assetId: uuid, symbol: z.string(), reason: z.string() })),
 }));
+export const PortfolioHistory = named("PortfolioHistory", obj({
+  baseCurrency: z.string(), asOf: date,
+  /** One point per month end (the last one is today): market value (unpriced holdings at cost) and the cost still invested. */
+  points: z.array(obj({ date, valueMinor: money, investedMinor: money })),
+  approximate: z.boolean(),
+  excluded: z.array(obj({ assetId: uuid, symbol: z.string(), reason: z.string() })),
+}));
 export const Trade = named("Trade", obj({
   id: uuid, userId: uuid, assetId: uuid, type: z.enum(tradeTypes), quantity: z.number().nullable(), priceMinor: z.number().nullable(), amountMinor: money, feeMinor: money,
   tradedOn: date, note: nullableString, includeInAvg: z.boolean(), clientId: uuid.nullable(), createdAt: dateTime, deletedAt: dateTime.nullable(),
@@ -153,3 +160,44 @@ export const Report = named("Report", obj({
 /** `{ data: T }` envelope used by every success response. */
 export const envelope = <T extends z.ZodType>(data: T) => obj({ data });
 export const TransactionPage = named("TransactionPage", obj({ data: z.array(Transaction), meta: obj({ nextCursor: z.string().nullable() }) }));
+
+// ── admin ──
+export const AdminLoginStep = named("AdminLoginStep", obj({
+  /** setup = scan the QR / enter the secret in an authenticator app, then send the first code; mfa = send the current code. */
+  step: z.enum(["setup", "mfa"]), mfaToken: z.string(), otpauthUrl: z.string().optional(), secret: z.string().optional(),
+}));
+export const AdminProfile = named("AdminProfile", obj({ id: uuid, email: z.string(), name: z.string(), lastLoginAt: dateTime.nullable() }));
+export const AdminSession = named("AdminSession", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int(), admin: AdminProfile }));
+export const AdminTokens = named("AdminTokens", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
+export const AdminStats = named("AdminStats", obj({
+  generatedAt: dateTime,
+  users: obj({ total: z.number().int(), verified: z.number().int(), unverified: z.number().int(), suspended: z.number().int(), newLast7: z.number().int(), newLast30: z.number().int(), activeLast30: z.number().int() }),
+  signupsByDay: z.array(obj({ date, count: z.number().int() })),
+  totals: obj({ accounts: z.number().int(), transactions: z.number().int(), attachments: z.number().int(), attachmentBytes: z.number().int(), budgets: z.number().int(), goals: z.number().int(), debts: z.number().int(), notes: z.number().int(), assets: z.number().int(), trades: z.number().int() }),
+}));
+export const AdminUserRow = named("AdminUserRow", obj({
+  id: uuid, email: z.string(), name: z.string(), baseCurrency: z.string(), timezone: z.string(), createdAt: dateTime,
+  emailVerified: z.boolean(), suspended: z.boolean(), suspendedReason: nullableString, lastActiveAt: dateTime.nullable(),
+  accountCount: z.number().int(), transactionCount: z.number().int(),
+}));
+export const AdminUserPage = named("AdminUserPage", obj({ items: z.array(AdminUserRow), total: z.number().int(), page: z.number().int(), pageSize: z.number().int() }));
+export const AuditEntry = named("AuditEntry", obj({
+  id: uuid, adminId: uuid.nullable(), adminEmail: nullableString, action: z.string(), targetUserId: uuid.nullable(), targetEmail: nullableString,
+  reason: nullableString, meta: z.record(z.string(), z.unknown()).nullable(), ip: nullableString, createdAt: dateTime,
+}));
+export const AuditPage = named("AuditPage", obj({ items: z.array(AuditEntry), total: z.number().int(), page: z.number().int(), pageSize: z.number().int() }));
+export const AdminUserDetail = named("AdminUserDetail", obj({
+  user: AdminUserRow,
+  counts: obj({ accounts: z.number().int(), transactions: z.number().int(), categories: z.number().int(), tags: z.number().int(), budgets: z.number().int(), recurring: z.number().int(), goals: z.number().int(), debts: z.number().int(), notes: z.number().int(), assets: z.number().int(), trades: z.number().int(), attachments: z.number().int() }),
+  storageBytes: z.number().int(),
+  sessions: z.array(obj({ id: uuid, userAgent: nullableString, createdAt: dateTime, expiresAt: dateTime })),
+  recentAudit: z.array(AuditEntry),
+  support: obj({ open: z.boolean(), expiresAt: dateTime.nullable() }),
+}));
+export const SignOutResult = named("SignOutResult", obj({ revokedSessions: z.number().int() }));
+export const SupportSession = named("SupportSession", obj({ userId: uuid, expiresAt: dateTime }));
+export const SupportData = named("SupportData", obj({ kind: z.string(), items: z.array(z.record(z.string(), z.unknown())), truncated: z.boolean() }));
+export const AdminHealth = named("AdminHealth", obj({
+  status: z.enum(["ok", "degraded"]), checkedAt: dateTime, uptimeSec: z.number().int(), node: z.string(),
+  checks: z.array(obj({ name: z.string(), ok: z.boolean(), latencyMs: z.number().nullable(), detail: z.string() })),
+}));

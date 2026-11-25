@@ -41,6 +41,11 @@ import { KEYS, KV, MemoryKv, REDIS, RedisKv, createRedis, keys } from "./infra/k
 import { MAILER, Mailer } from "./infra/mailer";
 import { DiskStorage, STORAGE } from "./infra/storage";
 import type Redis from "ioredis";
+import { AdminAuthController, AdminController } from "./modules/admin/admin.controller";
+import { AdminAuthService } from "./modules/admin/admin-auth.service";
+import { AdminGuard } from "./modules/admin/admin.guard";
+import { AdminService } from "./modules/admin/admin.service";
+import { AuditService } from "./modules/admin/audit.service";
 
 @Global()
 @Module({
@@ -57,9 +62,11 @@ import type Redis from "ioredis";
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService, AccountDeletionService,
     TagsService, AttachmentsService, GoalsService, DebtsService, NotesService, ReportsService,
+    AuditService, AdminAuthService, AdminService, AdminGuard,
   ],
   controllers: [HealthController, OpenApiController, AuthController, UsersController, CurrenciesController, AccountsController, CategoriesController, TransactionsController, InsightsController, FxController, ImportsController, BudgetsController, RecurringController, InvestmentsController,
-    TagsController, AttachmentsController, GoalsController, DebtsController, NotesController, ReportsController],
+    TagsController, AttachmentsController, GoalsController, DebtsController, NotesController, ReportsController,
+    AdminAuthController, AdminController],
   exports: [CONFIG, DB, POOL, REDIS, KV, KEYS, MAILER, STORAGE],
 })
 export class AppModule implements OnApplicationShutdown {

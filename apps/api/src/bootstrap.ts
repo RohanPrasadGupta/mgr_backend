@@ -13,7 +13,7 @@ import { loadConfig } from "./config";
 
 export async function createApp(opts: { logger?: boolean } = {}) {
   const config = loadConfig();
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ trustProxy: true, bodyLimit: 10 * 1024 * 1024 }), {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ trustProxy: config.TRUST_PROXY, bodyLimit: 10 * 1024 * 1024 }), {
     logger: opts.logger === false ? false : ["error", "warn", "log"],
   });
   await app.register(helmet);

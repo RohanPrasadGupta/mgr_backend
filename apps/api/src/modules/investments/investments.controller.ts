@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
-  createAssetSchema, createTradeSchema, listTradesSchema, setPriceSchema, sipCalcSchema, sipProjection, updateAssetSchema, updateTradeSchema,
-  type CreateAssetInput, type CreateTradeInput, type ListTradesInput, type SetPriceInput, type UpdateAssetInput, type UpdateTradeInput,
+  createAssetSchema, createTradeSchema, listTradesSchema, portfolioHistorySchema, setPriceSchema, sipCalcSchema, sipProjection, updateAssetSchema, updateTradeSchema,
+  type CreateAssetInput, type CreateTradeInput, type ListTradesInput, type PortfolioHistoryInput, type SetPriceInput, type UpdateAssetInput, type UpdateTradeInput,
 } from "@moneymgr/shared";
 import { ZodPipe } from "../../common/zod.pipe";
 import { UserId } from "../auth/auth.guard";
@@ -15,6 +15,7 @@ export class InvestmentsController {
   constructor(@Inject(InvestmentsService) private readonly svc: InvestmentsService) {}
 
   @Get("investments/portfolio") async portfolio(@UserId() u: string) { return { data: await this.svc.portfolio(u) }; }
+  @Get("investments/portfolio/history") async history(@UserId() u: string, @Query(new ZodPipe(portfolioHistorySchema)) q: PortfolioHistoryInput) { return { data: await this.svc.portfolioHistory(u, q.months) }; }
 
   @Get("investments/assets") async assets(@UserId() u: string, @Query(new ZodPipe(archivedQ)) q: z.infer<typeof archivedQ>) { return { data: await this.svc.listHoldings(u, q.archived === "true") }; }
   @Post("investments/assets") async createAsset(@UserId() u: string, @Body(new ZodPipe(createAssetSchema)) b: CreateAssetInput) { return { data: await this.svc.createAsset(u, b) }; }

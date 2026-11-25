@@ -128,6 +128,43 @@ describe("portfolio", () => {
   });
 });
 
+describe("portfolio history", () => {
+  const ym = (back: number) => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - back); return d.toISOString().slice(0, 7); };
+
+  it("replays trades and manual prices month by month, carrying unpriced holdings at cost", async () => {
+    const { token } = await registerUser(c);
+    const s = await mkAsset(token, { symbol: "ACME" });
+    const f = await mkAsset(token, { symbol: "GROWTH-SIP", class: "fund" });
+    await c.post("/v1/investments/trades", { assetId: s.id, type: "buy", quantity: 10, priceMinor: 1000, tradedOn: `${ym(2)}-05` }, token);
+    await c.post("/v1/investments/trades", { assetId: f.id, type: "contribution", amountMinor: 5_000, tradedOn: `${ym(2)}-05` }, token);
+    await c.post(`/v1/investments/assets/${s.id}/prices`, { asOn: `${ym(1)}-10`, priceMinor: 1200 }, token);
+    await c.post("/v1/investments/trades", { assetId: s.id, type: "sell", quantity: 5, priceMinor: 1500, tradedOn: `${ym(0)}-01` }, token);
+
+    const h = (await c.get("/v1/investments/portfolio/history?months=4", token)).body.data;
+    expect(h.baseCurrency).toBe("THB");
+    expect(h.points.map((p: any) => p.date.slice(0, 7))).toEqual([ym(2), ym(1), ym(0)]); // nothing before the first trade
+    expect(h.points.map((p: any) => [p.valueMinor, p.investedMinor])).toEqual([
+      [15_000, 15_000], // no price yet: stock and fund at cost
+      [17_000, 15_000], // stock re-priced at 12.00
+      [11_000, 10_000], // half sold: 5 × 12.00 + fund 50.00; remaining cost 50.00 + 50.00
+    ]);
+    expect(h.points.at(-1).date).toBe(h.asOf);
+    const p = (await c.get("/v1/investments/portfolio", token)).body.data;
+    expect([p.marketValueMinor, p.investedMinor]).toEqual([11_000, 10_000]); // the last point matches today's totals
+  });
+
+  it("is empty without trades, skips assets with no FX rate, and validates the range", async () => {
+    const { token } = await registerUser(c);
+    expect((await c.get("/v1/investments/portfolio/history", token)).body.data.points).toEqual([]);
+    const n = await mkAsset(token, { symbol: "LOCAL1", currency: "NPR" });
+    await c.post("/v1/investments/trades", { assetId: n.id, type: "buy", quantity: 1, priceMinor: 100, tradedOn: `${ym(0)}-01` }, token);
+    const h = (await c.get("/v1/investments/portfolio/history?months=1", token)).body.data;
+    expect(h.excluded[0]).toMatchObject({ symbol: "LOCAL1" });
+    expect(h.points).toEqual([{ date: h.asOf, valueMinor: 0, investedMinor: 0 }]);
+    expect((await c.get("/v1/investments/portfolio/history?months=500", token)).status).toBe(400);
+  });
+});
+
 describe("calc", () => {
   it("projects a SIP with the v1 formula", async () => {
     const { token } = await registerUser(c);

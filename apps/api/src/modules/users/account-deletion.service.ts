@@ -35,7 +35,11 @@ export class AccountDeletionService {
       throw new AppError(403, "incorrect_password", "Incorrect password");
     }
     await this.kv.del(failKey, this.keys.loginFailures(user.email));
+    await this.purge(userId);
+  }
 
+  /** Erases a user and everything they own (also used by the admin "delete user" action, which has its own checks). */
+  async purge(userId: string): Promise<void> {
     const files = await this.db.select({ key: attachments.storageKey }).from(attachments).where(eq(attachments.userId, userId));
     // Hard delete, children before parents, in one transaction: either everything goes or nothing does.
     await this.db.transaction(async (tx) => {

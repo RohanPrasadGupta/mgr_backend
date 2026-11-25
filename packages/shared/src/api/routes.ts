@@ -6,7 +6,7 @@ import {
   updateRecurringSchema, updateTransactionSchema, deleteAccountSchema,
 } from "../schemas";
 import {
-  createAssetSchema, createTradeSchema, importInvestmentsSchema, listTradesSchema, setPriceSchema, sipCalcSchema, updateAssetSchema, updateTradeSchema,
+  createAssetSchema, createTradeSchema, importInvestmentsSchema, listTradesSchema, portfolioHistorySchema, setPriceSchema, sipCalcSchema, updateAssetSchema, updateTradeSchema,
 } from "../schemas/investments";
 import { importTransactionsSchema } from "../schemas/ledger";
 import { changePasswordSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from "../schemas/auth";
@@ -15,6 +15,9 @@ import {
   updateDebtSchema, updateGoalSchema, updateNoteSchema, updateTagSchema,
 } from "../schemas/planning";
 import { currencyCode, isoDate } from "../schemas/common";
+import {
+  adminAuditQuerySchema, adminDeleteUserSchema, adminLoginSchema, adminMfaSchema, adminReasonSchema, adminRefreshSchema, adminUsersQuerySchema,
+} from "../schemas/admin";
 
 export interface RouteDef {
   method: "get" | "post" | "patch" | "delete";
@@ -100,6 +103,7 @@ export const routes: RouteDef[] = [
   r("post", "/imports/investments", "importInvestments", "Import", "Import v1 investment documents (dry-run supported, idempotent)", 200, data(R.InvestmentImportReport), { body: importInvestmentsSchema }),
 
   r("get", "/investments/portfolio", "getPortfolio", "Investments", "Portfolio totals in the base currency", 200, data(R.Portfolio)),
+  r("get", "/investments/portfolio/history", "getPortfolioHistory", "Investments", "Portfolio value and invested amount at each month end", 200, data(R.PortfolioHistory), { query: portfolioHistorySchema }),
   r("get", "/investments/assets", "listAssets", "Investments", "List assets with their positions", 200, list(R.Holding), { query: archivedQuery }),
   r("post", "/investments/assets", "createAsset", "Investments", "Create an asset", 201, data(R.Asset), { body: createAssetSchema }),
   r("get", "/investments/assets/{id}", "getAsset", "Investments", "Get an asset's position", 200, data(R.Holding)),
@@ -147,4 +151,25 @@ export const routes: RouteDef[] = [
   r("get", "/reports", "getReport", "Reports", "Monthly or yearly report: totals, comparison with the previous period, categories, accounts, top expenses, budgets", 200, data(R.Report), { query: reportQuerySchema }),
 
   r("post", "/calc/sip", "calculateSip", "Calculators", "Project a monthly investment (annuity-due)", 200, data(R.SipResult), { body: sipCalcSchema }),
+
+  // ── admin (separate admin accounts + 2FA; every view and action is audited) ──
+  r("post", "/admin/auth/login", "adminLogin", "Admin", "Admin sign-in, step 1: password (returns the 2FA step)", 200, data(R.AdminLoginStep), { body: adminLoginSchema, public: true }),
+  r("post", "/admin/auth/mfa", "adminMfa", "Admin", "Admin sign-in, step 2: authenticator code (first time also enrols 2FA)", 200, data(R.AdminSession), { body: adminMfaSchema, public: true }),
+  r("post", "/admin/auth/refresh", "adminRefresh", "Admin", "Rotate the admin refresh token", 200, data(R.AdminTokens), { body: adminRefreshSchema, public: true }),
+  r("post", "/admin/auth/logout", "adminLogout", "Admin", "End the admin session", 204, null, { body: adminRefreshSchema, public: true }),
+  r("get", "/admin/me", "adminMe", "Admin", "Signed-in admin", 200, data(R.AdminProfile)),
+  r("get", "/admin/stats", "adminStats", "Admin", "Usage overview (no financial amounts)", 200, data(R.AdminStats)),
+  r("get", "/admin/users", "adminListUsers", "Admin", "Search and filter users", 200, data(R.AdminUserPage), { query: adminUsersQuerySchema }),
+  r("get", "/admin/users/{id}", "adminGetUser", "Admin", "User overview: profile, counts, sessions, recent audit (no financial amounts)", 200, data(R.AdminUserDetail)),
+  r("post", "/admin/users/{id}/suspend", "adminSuspendUser", "Admin", "Block sign-in and end every session", 200, data(R.AdminUserRow), { body: adminReasonSchema }),
+  r("post", "/admin/users/{id}/reactivate", "adminReactivateUser", "Admin", "Lift a suspension", 200, data(R.AdminUserRow), { body: adminReasonSchema }),
+  r("post", "/admin/users/{id}/sign-out", "adminSignOutUser", "Admin", "End all of the user's sessions", 200, data(R.SignOutResult), { body: adminReasonSchema }),
+  r("post", "/admin/users/{id}/resend-verification", "adminResendVerification", "Admin", "Email the verification link again", 202, data(R.Accepted), { body: adminReasonSchema }),
+  r("post", "/admin/users/{id}/mark-verified", "adminMarkVerified", "Admin", "Mark the email as confirmed", 200, data(R.AdminUserRow), { body: adminReasonSchema }),
+  r("delete", "/admin/users/{id}", "adminDeleteUser", "Admin", "Permanently delete the user and all their data", 204, null, { body: adminDeleteUserSchema }),
+  r("post", "/admin/users/{id}/support", "adminOpenSupport", "Admin", "Open a time-limited support view of the user's data (reason required, audited)", 201, data(R.SupportSession), { body: adminReasonSchema }),
+  r("delete", "/admin/users/{id}/support", "adminCloseSupport", "Admin", "Close the support view", 204, null),
+  r("get", "/admin/users/{id}/data/{kind}", "adminSupportData", "Admin", "Read one kind of the user's data during a support view (audited)", 200, data(R.SupportData)),
+  r("get", "/admin/audit", "adminAudit", "Admin", "Audit log", 200, data(R.AuditPage), { query: adminAuditQuerySchema }),
+  r("get", "/admin/health", "adminHealth", "Admin", "API, database, Redis, email, storage and FX status", 200, data(R.AdminHealth)),
 ];

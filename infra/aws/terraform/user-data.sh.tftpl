@@ -1,0 +1,33 @@
+#!/bin/bash
+# First boot only: Docker, swap, the data disk at /data. The app itself is installed by deploy.sh (via SSM).
+set -euxo pipefail
+exec > >(tee -a /var/log/moneymgr-bootstrap.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+timedatectl set-timezone Asia/Singapore || true
+
+apt-get update -y
+apt-get install -y docker.io docker-compose-v2 cron jq
+snap install aws-cli --classic || true
+systemctl enable --now docker
+
+# 2 GB swap: headroom for image pulls and Next.js on a small instance.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10 && echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+fi
+
+# The data disk is attached just after launch: wait for it, format it only if it is blank, mount it at /data.
+DEV="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(data_volume_id, "-", "")}"
+for i in $(seq 1 60); do [ -e "$DEV" ] && break; sleep 5; done
+[ -e "$DEV" ] || { echo "data volume never appeared"; exit 1; }
+if ! blkid "$DEV" >/dev/null 2>&1; then mkfs.ext4 -L mmdata "$DEV"; fi
+mkdir -p /data
+UUID=$(blkid -s UUID -o value "$DEV")
+grep -q "$UUID" /etc/fstab || echo "UUID=$UUID /data ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p /data/postgres /data/redis /data/uploads /data/caddy /opt/moneymgr
+chown 1000:1000 /data/uploads   # the API container runs as the "node" user (uid 1000)
+
+touch /var/lib/moneymgr-bootstrapped

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  bigint, boolean, check, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid,
+  bigint, boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -49,6 +49,9 @@ export const users = pgTable("users", {
   weekStart: integer("week_start").notNull().default(1),
   emailVerifiedAt: ts("email_verified_at"),
   passwordChangedAt: ts("password_changed_at"),
+  /** Set by an admin: sign-in, token refresh and every API call are refused until reactivated. */
+  suspendedAt: ts("suspended_at"),
+  suspendedReason: text("suspended_reason"),
   createdAt: ts("created_at").notNull().defaultNow(),
   deletedAt: ts("deleted_at"),
 });
@@ -359,4 +362,52 @@ export const notes = pgTable(
     updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [index("notes_user_idx").on(t.userId, t.pinned, t.updatedAt)],
+);
+
+// ── admin (separate from customer accounts: own logins, 2FA, sessions, audit log) ──
+
+export const admins = pgTable("admins", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  /** Authenticator-app secret, AES-256-GCM encrypted (never stored or logged in plain text). Confirmed once `totpEnabledAt` is set. */
+  totpSecretEnc: text("totp_secret_enc"),
+  totpEnabledAt: ts("totp_enabled_at"),
+  lastLoginAt: ts("last_login_at"),
+  disabledAt: ts("disabled_at"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const adminSessions = pgTable(
+  "admin_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminId: uuid("admin_id").notNull().references(() => admins.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    userAgent: text("user_agent"),
+    ip: text("ip"),
+    expiresAt: ts("expires_at").notNull(),
+    revokedAt: ts("revoked_at"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("admin_sessions_admin_idx").on(t.adminId)],
+);
+
+/** Every admin sign-in, view and action. Target users are referenced by id + email snapshot (no FK: entries outlive deleted users). */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminId: uuid("admin_id").references(() => admins.id, { onDelete: "set null" }),
+    adminEmail: text("admin_email"),
+    action: text("action").notNull(),
+    targetUserId: uuid("target_user_id"),
+    targetEmail: text("target_email"),
+    reason: text("reason"),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    ip: text("ip"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("audit_log_created_idx").on(t.createdAt), index("audit_log_target_idx").on(t.targetUserId, t.createdAt), index("audit_log_admin_idx").on(t.adminId, t.createdAt)],
 );
