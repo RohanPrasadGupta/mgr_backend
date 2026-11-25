@@ -37,6 +37,7 @@ export const createTransactionSchema = z.object({
   note: z.string().max(500).optional(),
   fxRate: fxRate.optional(),
   clientId: uuid.optional(),
+  tagIds: z.array(uuid).max(20).optional(),
 });
 export const updateTransactionSchema = z
   .object({
@@ -45,6 +46,8 @@ export const updateTransactionSchema = z
     occurredAt: z.coerce.date(),
     note: z.string().max(500).nullable(),
     fxRate,
+    /** Replaces the full tag set. */
+    tagIds: z.array(uuid).max(20),
   })
   .partial();
 
@@ -53,6 +56,7 @@ export const listTransactionsSchema = z.object({
   to: isoDate.optional(),
   accountId: uuid.optional(),
   categoryId: uuid.optional(),
+  tagId: uuid.optional(),
   kind: z.enum(["income", "expense", "transfer_out", "transfer_in"]).optional(),
   q: z.string().trim().min(1).max(100).optional(),
   minMinor: z.coerce.number().int().optional(),

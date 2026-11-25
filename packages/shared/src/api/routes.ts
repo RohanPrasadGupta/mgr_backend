@@ -9,6 +9,11 @@ import {
   createAssetSchema, createTradeSchema, importInvestmentsSchema, listTradesSchema, setPriceSchema, sipCalcSchema, updateAssetSchema, updateTradeSchema,
 } from "../schemas/investments";
 import { importTransactionsSchema } from "../schemas/ledger";
+import { changePasswordSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from "../schemas/auth";
+import {
+  createDebtSchema, createGoalSchema, createNoteSchema, createTagSchema, debtPaymentSchema, goalContributionSchema, listDebtsSchema, listNotesSchema, reportQuerySchema,
+  updateDebtSchema, updateGoalSchema, updateNoteSchema, updateTagSchema,
+} from "../schemas/planning";
 import { currencyCode, isoDate } from "../schemas/common";
 
 export interface RouteDef {
@@ -22,8 +27,12 @@ export interface RouteDef {
   query?: z.ZodType;
   body?: z.ZodType;
   /** Success status and body; `null` body = no content. */
-  status: 200 | 201 | 204;
+  status: 200 | 201 | 202 | 204;
   response: z.ZodType | null;
+  /** Request body is multipart/form-data with a single `file` part. */
+  multipart?: boolean;
+  /** Response is raw bytes (Content-Type of the stored file), not JSON. */
+  binary?: boolean;
 }
 
 const data = <T extends z.ZodType>(s: T) => R.envelope(s);
@@ -39,9 +48,14 @@ export const routes: RouteDef[] = [
   r("post", "/auth/login", "login", "Auth", "Sign in", 200, data(R.AuthResult), { body: loginSchema, public: true }),
   r("post", "/auth/refresh", "refreshTokens", "Auth", "Rotate the refresh token and get a new access token", 200, data(R.TokenPair), { body: refreshSchema, public: true }),
   r("post", "/auth/logout", "logout", "Auth", "Revoke a refresh token", 204, null, { body: refreshSchema, public: true }),
+  r("post", "/auth/forgot-password", "forgotPassword", "Auth", "Email a password-reset link (always 202, so it never reveals whether an email is registered)", 202, data(R.Accepted), { body: forgotPasswordSchema, public: true }),
+  r("post", "/auth/reset-password", "resetPassword", "Auth", "Set a new password with a reset token; signs out every session", 204, null, { body: resetPasswordSchema, public: true }),
+  r("post", "/auth/verify-email", "verifyEmail", "Auth", "Confirm an email address with the emailed token", 200, data(R.Verified), { body: verifyEmailSchema, public: true }),
 
   r("get", "/me", "getMe", "Profile", "Current user", 200, data(R.User)),
   r("patch", "/me", "updateMe", "Profile", "Update profile and preferences", 200, data(R.User), { body: updateMeSchema }),
+  r("post", "/me/resend-verification", "resendVerification", "Profile", "Send the email-verification link again", 202, data(R.Accepted)),
+  r("post", "/me/password", "changePassword", "Profile", "Change the password (signs out other sessions)", 204, null, { body: changePasswordSchema }),
   r("delete", "/me", "deleteMe", "Profile", "Permanently delete the account and all its data (requires the password)", 204, null, { body: deleteAccountSchema }),
   r("get", "/currencies", "listCurrencies", "Profile", "Supported currencies", 200, list(R.Currency)),
   r("get", "/fx", "getFxRate", "FX", "Exchange rate between two currencies on a date", 200, data(R.FxQuote), { query: fxQuery }),
@@ -97,5 +111,40 @@ export const routes: RouteDef[] = [
   r("post", "/investments/trades", "createTrade", "Investments", "Record a trade, contribution or withdrawal", 201, data(R.Trade), { body: createTradeSchema }),
   r("patch", "/investments/trades/{id}", "updateTrade", "Investments", "Update a trade", 200, data(R.Trade), { body: updateTradeSchema }),
   r("delete", "/investments/trades/{id}", "deleteTrade", "Investments", "Delete a trade", 204, null),
+  r("get", "/tags", "listTags", "Tags", "List tags with usage counts", 200, list(R.Tag)),
+  r("post", "/tags", "createTag", "Tags", "Create a tag", 201, data(R.Tag), { body: createTagSchema }),
+  r("patch", "/tags/{id}", "updateTag", "Tags", "Rename or recolour a tag", 200, data(R.Tag), { body: updateTagSchema }),
+  r("delete", "/tags/{id}", "deleteTag", "Tags", "Delete a tag (removes it from its transactions)", 204, null),
+
+  r("get", "/transactions/{id}/attachments", "listAttachments", "Attachments", "Files attached to a transaction", 200, list(R.Attachment)),
+  // Upload is multipart/form-data with one `file` part (≤ 10 MB; JPEG, PNG, WebP, HEIC or PDF) — described by hand in buildOpenApi.
+  r("post", "/transactions/{id}/attachments", "uploadAttachment", "Attachments", "Attach a receipt (multipart/form-data, field `file`)", 201, data(R.Attachment), { multipart: true }),
+  r("get", "/attachments/{id}/file", "downloadAttachment", "Attachments", "Download an attachment's bytes", 200, null, { binary: true }),
+  r("delete", "/attachments/{id}", "deleteAttachment", "Attachments", "Delete an attachment", 204, null),
+
+  r("get", "/goals", "listGoals", "Goals", "List goals with progress", 200, list(R.Goal), { query: archivedQuery }),
+  r("post", "/goals", "createGoal", "Goals", "Create a savings goal", 201, data(R.Goal), { body: createGoalSchema }),
+  r("get", "/goals/{id}", "getGoal", "Goals", "A goal with its contributions", 200, data(R.GoalDetail)),
+  r("patch", "/goals/{id}", "updateGoal", "Goals", "Update a goal", 200, data(R.Goal), { body: updateGoalSchema }),
+  r("delete", "/goals/{id}", "deleteGoal", "Goals", "Delete a goal and its contributions", 204, null),
+  r("post", "/goals/{id}/contributions", "addGoalContribution", "Goals", "Add (or withdraw) money toward a goal", 201, data(R.GoalContribution), { body: goalContributionSchema }),
+  r("delete", "/goals/{id}/contributions/{contributionId}", "deleteGoalContribution", "Goals", "Delete a contribution", 204, null),
+
+  r("get", "/debts", "listDebts", "Debts", "List debts (open by default)", 200, list(R.Debt), { query: listDebtsSchema }),
+  r("get", "/debts/summary", "getDebtSummary", "Debts", "What you are owed and what you owe, per currency", 200, data(R.DebtSummary)),
+  r("post", "/debts", "createDebt", "Debts", "Record money lent or borrowed", 201, data(R.Debt), { body: createDebtSchema }),
+  r("get", "/debts/{id}", "getDebt", "Debts", "A debt with its payments", 200, data(R.DebtDetail)),
+  r("patch", "/debts/{id}", "updateDebt", "Debts", "Update a debt", 200, data(R.Debt), { body: updateDebtSchema }),
+  r("delete", "/debts/{id}", "deleteDebt", "Debts", "Delete a debt and its payments", 204, null),
+  r("post", "/debts/{id}/payments", "addDebtPayment", "Debts", "Record a repayment", 201, data(R.DebtPayment), { body: debtPaymentSchema }),
+  r("delete", "/debts/{id}/payments/{paymentId}", "deleteDebtPayment", "Debts", "Delete a repayment", 204, null),
+
+  r("get", "/notes", "listNotes", "Notes", "List notes (pinned first), optional search", 200, list(R.Note), { query: listNotesSchema }),
+  r("post", "/notes", "createNote", "Notes", "Create a note", 201, data(R.Note), { body: createNoteSchema }),
+  r("patch", "/notes/{id}", "updateNote", "Notes", "Update a note", 200, data(R.Note), { body: updateNoteSchema }),
+  r("delete", "/notes/{id}", "deleteNote", "Notes", "Delete a note", 204, null),
+
+  r("get", "/reports", "getReport", "Reports", "Monthly or yearly report: totals, comparison with the previous period, categories, accounts, top expenses, budgets", 200, data(R.Report), { query: reportQuerySchema }),
+
   r("post", "/calc/sip", "calculateSip", "Calculators", "Project a monthly investment (annuity-due)", 200, data(R.SipResult), { body: sipCalcSchema }),
 ];

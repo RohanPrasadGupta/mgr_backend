@@ -4,7 +4,7 @@
  * Columns (real v1 export): Date, Account, Category, Subcategory, Note, THB, Income/Expense, Description, Amount, Currency, Account
  * (`Amount` is in `Currency`; `THB` is the same value converted — we import Amount + Currency and let FX handle the rest.)
  * Re-running is safe: rows are de-duplicated with a deterministic clientId.
- * NOTE: `xlsx` (SheetJS 0.18.x) has known CVEs for *untrusted* files — only feed it your own export.
+ * Uses SheetJS 0.20.3 from the vendor CDN (the npm copy stopped at 0.18.5, which has prototype-pollution/ReDoS advisories).
  */
 import { eq } from "drizzle-orm";
 import * as XLSX from "xlsx";

@@ -54,10 +54,13 @@ export function buildOpenApi(version = "0.1.0"): Json {
       ...(route.public ? { security: [] } : {}),
       ...(params.length ? { parameters: params } : {}),
       ...(route.body ? { requestBody: { required: true, content: { "application/json": { schema: toSchema(route.body, "input", defs) } } } } : {}),
+      ...(route.multipart ? { requestBody: { required: true, content: { "multipart/form-data": { schema: { type: "object", required: ["file"], properties: { file: { type: "string", format: "binary" } } } } } } } : {}),
       responses: {
-        [String(route.status)]: route.response
-          ? { description: "Success", content: { "application/json": { schema: toSchema(route.response, "output", defs) } } }
-          : { description: "Success (no content)" },
+        [String(route.status)]: route.binary
+          ? { description: "File bytes", content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } }
+          : route.response
+            ? { description: "Success", content: { "application/json": { schema: toSchema(route.response, "output", defs) } } }
+            : { description: "Success (no content)" },
         default: { description: "Error", content: { "application/json": { schema: errorRef } } },
       },
     };

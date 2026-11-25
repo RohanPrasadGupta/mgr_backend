@@ -12,6 +12,9 @@ export default defineConfig({
       DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://moneymgr:moneymgr@localhost:5432/moneymgr_test",
       JWT_SECRET: "test-secret-test-secret-test-secret-123",
       CORS_ORIGINS: "http://localhost:3000",
+      MAIL_TRANSPORT: "memory",
+      UPLOAD_DIR: "./.test-uploads",
+      REDIS_URL: "",
     },
   },
 });

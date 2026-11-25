@@ -1,21 +1,50 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, ilike, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   convertMinor, toLocalDate,
   type CreateTransactionInput, type CreateTransferInput, type ListTransactionsInput, type UpdateTransactionInput,
 } from "@moneymgr/shared";
 import { DB, type Db } from "../../db/db";
-import { accounts, categories, transactions, users, type Account } from "../../db/schema";
+import { accounts, attachments, categories, tags, transactionTags, transactions, users, type Account } from "../../db/schema";
 import { AppError, notFound, unprocessable } from "../../common/errors";
 import { FxService } from "../fx/fx.service";
+import { AttachmentsService } from "../attachments/attachments";
 
 type Tx = typeof transactions.$inferSelect;
 const view = (t: Tx) => ({ ...t, fxRate: Number(t.fxRate) });
 
 @Injectable()
 export class TransactionsService {
-  constructor(@Inject(DB) private readonly db: Db, @Inject(FxService) private readonly fx: FxService) {}
+  constructor(@Inject(DB) private readonly db: Db, @Inject(FxService) private readonly fx: FxService, @Inject(AttachmentsService) private readonly files: AttachmentsService) {}
+
+  /** Adds `tagIds` and `attachmentCount` to rows (two batched queries, whatever the page size). */
+  private async decorate(rows: Tx[]) {
+    if (!rows.length) return [];
+    const ids = rows.map((r) => r.id);
+    const [tagRows, attRows] = await Promise.all([
+      this.db.select({ tx: transactionTags.transactionId, tag: transactionTags.tagId }).from(transactionTags).innerJoin(tags, eq(tags.id, transactionTags.tagId)).where(inArray(transactionTags.transactionId, ids)).orderBy(tags.name),
+      this.db.select({ tx: attachments.transactionId, n: sql<number>`count(*)::int` }).from(attachments).where(inArray(attachments.transactionId, ids)).groupBy(attachments.transactionId),
+    ]);
+    const tagMap = new Map<string, string[]>();
+    for (const t of tagRows) (tagMap.get(t.tx) ?? tagMap.set(t.tx, []).get(t.tx)!).push(t.tag);
+    const attMap = new Map(attRows.map((a) => [a.tx, a.n]));
+    return rows.map((t) => ({ ...view(t), tagIds: tagMap.get(t.id) ?? [], attachmentCount: attMap.get(t.id) ?? 0 }));
+  }
+  private async one(row: Tx) { return (await this.decorate([row]))[0]!; }
+
+  /** Replace a transaction's tag set; every tag must belong to the user. */
+  private async setTags(userId: string, transactionId: string, tagIds: string[]) {
+    const unique = [...new Set(tagIds)];
+    if (unique.length) {
+      const owned = await this.db.select({ id: tags.id }).from(tags).where(and(eq(tags.userId, userId), inArray(tags.id, unique)));
+      if (owned.length !== unique.length) throw unprocessable("invalid_tag", "One or more tags were not found");
+    }
+    await this.db.transaction(async (tx) => {
+      await tx.delete(transactionTags).where(eq(transactionTags.transactionId, transactionId));
+      if (unique.length) await tx.insert(transactionTags).values(unique.map((tagId) => ({ transactionId, tagId })));
+    });
+  }
 
   private async getUser(userId: string) {
     const [u] = await this.db.select().from(users).where(eq(users.id, userId));
@@ -40,7 +69,7 @@ export class TransactionsService {
   async create(userId: string, input: CreateTransactionInput, opts: { recurringId?: string } = {}) {
     if (input.clientId) {
       const [dup] = await this.db.select().from(transactions).where(and(eq(transactions.userId, userId), eq(transactions.clientId, input.clientId)));
-      if (dup) return view(dup);
+      if (dup) return this.one(dup);
     }
     const [user, account] = await Promise.all([this.getUser(userId), this.getAccount(userId, input.accountId)]);
     if (input.categoryId) await this.assertCategory(userId, input.categoryId, input.kind);
@@ -55,7 +84,8 @@ export class TransactionsService {
         occurredAt, occurredOn: toLocalDate(occurredAt, user.timezone), note: input.note, clientId: input.clientId, recurringId: opts.recurringId,
       })
       .returning();
-    return view(row!);
+    if (input.tagIds?.length) await this.setTags(userId, row!.id, input.tagIds);
+    return this.one(row!);
   }
 
   private async assertCategory(userId: string, categoryId: string, kind: "income" | "expense") {
@@ -86,7 +116,7 @@ export class TransactionsService {
         { userId, accountId: to.id, kind: "transfer_in" as const, amountMinor: toAmount, currency: to.currency, fxRate: String(rateTo), baseAmountMinor: convertMinor(toAmount, to.currency, user.baseCurrency, rateTo), occurredAt, occurredOn, note: input.note, transferGroupId: groupId },
       ])
       .returning();
-    return { transferGroupId: groupId, legs: rows.map(view) };
+    return { transferGroupId: groupId, legs: await this.decorate(rows) };
   }
 
   async list(userId: string, q: ListTransactionsInput) {
@@ -96,6 +126,7 @@ export class TransactionsService {
     if (q.accountId) conds.push(eq(transactions.accountId, q.accountId));
     if (q.categoryId) conds.push(eq(transactions.categoryId, q.categoryId));
     if (q.kind) conds.push(eq(transactions.kind, q.kind));
+    if (q.tagId) conds.push(sql`exists (select 1 from transaction_tags tt where tt.transaction_id = ${transactions.id} and tt.tag_id = ${q.tagId})`);
     if (q.minMinor !== undefined) conds.push(gte(transactions.amountMinor, q.minMinor));
     if (q.maxMinor !== undefined) conds.push(lte(transactions.amountMinor, q.maxMinor));
     if (q.q) {
@@ -112,13 +143,13 @@ export class TransactionsService {
     const page = rows.slice(0, q.limit);
     const last = page[page.length - 1];
     const nextCursor = rows.length > q.limit && last ? Buffer.from(`${last.occurredAt.toISOString()}|${last.id}`).toString("base64url") : null;
-    return { data: page.map(view), meta: { nextCursor } };
+    return { data: await this.decorate(page), meta: { nextCursor } };
   }
 
   async get(userId: string, id: string) {
     const [t] = await this.db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, userId), isNull(transactions.deletedAt)));
     if (!t) throw notFound("Transaction");
-    return view(t);
+    return this.one(t);
   }
 
   async update(userId: string, id: string, input: UpdateTransactionInput) {
@@ -149,12 +180,14 @@ export class TransactionsService {
     // for transfers only note/date are editable, and apply to both legs
     const set = isTransfer ? { updatedAt: patch.updatedAt, note: patch.note, occurredAt: patch.occurredAt, occurredOn: patch.occurredOn } : patch;
     await this.db.update(transactions).set(set).where(and(where, eq(transactions.userId, userId), isNull(transactions.deletedAt)));
+    if (input.tagIds !== undefined) await this.setTags(userId, id, input.tagIds);
     return this.get(userId, id);
   }
 
   async remove(userId: string, id: string) {
     const cur = await this.get(userId, id);
     const where = cur.transferGroupId ? eq(transactions.transferGroupId, cur.transferGroupId) : eq(transactions.id, id);
-    await this.db.update(transactions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(and(where, eq(transactions.userId, userId)));
+    const gone = await this.db.update(transactions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(and(where, eq(transactions.userId, userId))).returning({ id: transactions.id });
+    await this.files.removeForTransactions(userId, gone.map((g) => g.id));
   }
 }

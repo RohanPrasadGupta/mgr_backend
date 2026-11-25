@@ -4,6 +4,10 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import multipart from "@fastify/multipart";
+import type Redis from "ioredis";
+import { KEYS, REDIS, type Keys } from "./infra/kv";
+import { MAX_ATTACHMENT_BYTES } from "./modules/attachments/attachments";
 import { AppModule } from "./app.module";
 import { loadConfig } from "./config";
 
@@ -21,7 +25,13 @@ export async function createApp(opts: { logger?: boolean } = {}) {
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86_400,
   });
-  await app.register(rateLimit, { max: config.NODE_ENV === "test" ? 10_000 : 300, timeWindow: "1 minute" });
+  // Counters live in Redis when configured, so limits hold across instances and restarts.
+  const redis = app.get<Redis | null>(REDIS);
+  await app.register(rateLimit, {
+    max: config.NODE_ENV === "test" ? 10_000 : config.RATE_LIMIT_PER_MIN, timeWindow: "1 minute",
+    ...(redis ? { redis, nameSpace: app.get<Keys>(KEYS).rateLimitNamespace, skipOnError: true } : {}),
+  });
+  await app.register(multipart, { limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1, fields: 5, parts: 6 } });
   app.setGlobalPrefix("v1", { exclude: ["health", "ready", "openapi.json"] });
   app.enableShutdownHooks();
   return app;

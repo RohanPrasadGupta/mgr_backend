@@ -15,16 +15,18 @@
     "openapi": "tsx tools/openapi.ts"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "vitest": "^5.1.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.3",
     "@fastify/helmet": "^13.2.0",
+    "@fastify/multipart": "^10.1.9",
     "@fastify/rate-limit": "^11.3.0",
     "@moneymgr/shared": "workspace:*",
     "@nestjs/common": "^12.6.0",
@@ -33,7 +35,9 @@
     "@node-rs/argon2": "^2.2.2",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
+    "ioredis": "^6.1.0",
     "jose": "^6.2.18",
+    "nodemailer": "^10.6.1",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
