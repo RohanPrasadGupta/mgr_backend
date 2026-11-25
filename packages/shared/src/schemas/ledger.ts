@@ -72,6 +72,8 @@ export const createTransferSchema = z.object({
 });
 
 export const rangeQuerySchema = z.object({ from: isoDate, to: isoDate });
+/** Per-day series: at most ~13 months so a chart request can never ask for an unbounded range. */
+export const dailyQuerySchema = rangeQuerySchema.refine((r) => r.to >= r.from && (Date.parse(r.to) - Date.parse(r.from)) / 86_400_000 <= 400, { message: "range must be 0–400 days and from <= to", path: ["to"] });
 export const byCategoryQuerySchema = rangeQuerySchema.extend({ kind: kindEnum.default("expense") });
 export const trendQuerySchema = z.object({ year: z.coerce.number().int().min(1970).max(2200) });
 

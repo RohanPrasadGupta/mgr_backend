@@ -55,6 +55,20 @@ export class InsightsService {
     return { from, to, kind, baseCurrency, totalMinor: total, items: rows.map((r) => ({ ...r, pct: total ? (r.totalMinor / total) * 100 : 0 })) };
   }
 
+  /** One row per calendar day in the range (zero-filled so charts need no gap handling); transfers excluded. */
+  async daily(userId: string, from: string, to: string) {
+    const baseCurrency = await this.baseCurrency(userId);
+    const rows = await this.db.execute<{ day: string; income: number; expense: number }>(sql`
+      select to_char(d.day, 'YYYY-MM-DD') as day,
+             coalesce(sum(t.base_amount_minor) filter (where t.kind = 'income'), 0)::double precision as income,
+             coalesce(sum(t.base_amount_minor) filter (where t.kind = 'expense'), 0)::double precision as expense
+      from generate_series(${from}::date, ${to}::date, interval '1 day') as d(day)
+      left join transactions t
+        on t.user_id = ${userId} and t.deleted_at is null and t.kind in ('income', 'expense') and t.occurred_on = d.day::date
+      group by d.day order by d.day`);
+    return { from, to, baseCurrency, days: rows.rows.map((r) => ({ date: r.day, incomeMinor: r.income, expenseMinor: r.expense })) };
+  }
+
   /** v1 `dataPerYear` replacement: 12-element arrays bucketed by the user's local month. */
   async trend(userId: string, year: number) {
     const baseCurrency = await this.baseCurrency(userId);

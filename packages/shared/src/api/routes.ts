@@ -1,7 +1,7 @@
 import { z } from "zod";
 import * as R from "./responses";
 import {
-  byCategoryQuerySchema, createAccountSchema, createBudgetSchema, createCategorySchema, createRecurringSchema, createTransactionSchema, createTransferSchema, budgetStatusQuerySchema,
+  byCategoryQuerySchema, dailyQuerySchema, createAccountSchema, createBudgetSchema, createCategorySchema, createRecurringSchema, createTransactionSchema, createTransferSchema, budgetStatusQuerySchema,
   listTransactionsSchema, loginSchema, rangeQuerySchema, refreshSchema, registerSchema, trendQuerySchema, updateAccountSchema, updateBudgetSchema, updateCategorySchema, updateMeSchema,
   updateRecurringSchema, updateTransactionSchema, deleteAccountSchema,
 } from "../schemas";
@@ -66,6 +66,7 @@ export const routes: RouteDef[] = [
 
   r("get", "/insights/summary", "getSummary", "Insights", "Income, expense, net and savings rate for a range", 200, data(R.Summary), { query: rangeQuerySchema }),
   r("get", "/insights/by-category", "getByCategory", "Insights", "Totals grouped by category", 200, data(R.ByCategory), { query: byCategoryQuerySchema }),
+  r("get", "/insights/daily", "getDaily", "Insights", "Income and expense per day for a range (zero-filled, max 400 days)", 200, data(R.Daily), { query: dailyQuerySchema }),
   r("get", "/insights/trend", "getTrend", "Insights", "Twelve monthly buckets for a year", 200, data(R.Trend), { query: trendQuerySchema }),
 
   r("get", "/budgets", "listBudgets", "Budgets", "List budgets", 200, list(R.Budget)),

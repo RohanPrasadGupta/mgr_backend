@@ -156,5 +156,7 @@ Migration + RLS, Zod schema in `packages/shared`, OpenAPI updated, unit tests fo
 
 - 2026-11-24 (later): **CORS fix** — `@fastify/cors` defaults to GET/HEAD/POST only; PATCH/PUT/DELETE preflights from other origins (Expo web, any SPA) failed silently. Methods/headers are now explicit and covered by tests (allowed origin gets PATCH/DELETE, other origins get nothing). The mobile app (`../mgr_mobile`) talks to the API directly with bearer tokens; the Next.js web app uses a same-origin gateway instead.
 
+- 2026-11-25: **`GET /v1/insights/daily?from&to`** → `{from,to,baseCurrency,days:[{date,incomeMinor,expenseMinor}]}` for the dashboard's spending-per-day chart. Zero-filled for every calendar day (SQL `generate_series` left-joined to transactions), buckets by the stored local `occurred_on` date, income/expense only (transfers excluded), range capped at 400 days (`from<=to`, else 422). Registered in the OpenAPI route registry (`getDaily`), `openapi.json` regenerated, 4 new tests (zero-fill, local-day bucketing, transfers excluded, range validation). Now 57 API + 26 shared tests pass.
+
 ## 12. Backlog (add ideas here)
 - Open-banking aggregation (where supported), Android SMS parsing, home-screen widgets, receipts → line-item split, tax reports, net-worth snapshots, scheduled email reports, shared/family spaces, public API tokens, CSV templates for common banks.

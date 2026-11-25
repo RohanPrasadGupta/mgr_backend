@@ -209,3 +209,28 @@ describe("cors", () => {
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
+
+describe("insights daily", () => {
+  it("returns one zero-filled row per day, bucketed by the user's local date, excluding transfers", async () => {
+    const { token } = await registerUser(c);
+    const cash = (await c.get("/v1/accounts", token)).body.data[0];
+    const bank = (await c.post("/v1/accounts", { name: "Bank", type: "bank", currency: "THB" }, token)).body.data;
+    await c.post("/v1/transactions", { accountId: cash.id, kind: "income", amountMinor: 10_000, occurredAt: "2025-08-02T05:00:00Z" }, token);
+    await c.post("/v1/transactions", { accountId: cash.id, kind: "expense", amountMinor: 1_500, occurredAt: "2025-08-03T05:00:00Z" }, token);
+    await c.post("/v1/transactions", { accountId: cash.id, kind: "expense", amountMinor: 500, occurredAt: "2025-08-03T09:00:00Z" }, token);
+    await c.post("/v1/transactions", { accountId: cash.id, kind: "expense", amountMinor: 700, occurredAt: "2025-08-31T18:30:00Z" }, token); // 01:30 Sep 1 in Bangkok
+    await c.post("/v1/transfers", { fromAccountId: cash.id, toAccountId: bank.id, amountMinor: 999, occurredAt: "2025-08-03T05:00:00Z" }, token);
+    const r = (await c.get("/v1/insights/daily?from=2025-08-01&to=2025-08-04", token)).body.data;
+    expect(r.days.map((d: any) => d.date)).toEqual(["2025-08-01", "2025-08-02", "2025-08-03", "2025-08-04"]);
+    expect(r.days.map((d: any) => [d.incomeMinor, d.expenseMinor])).toEqual([[0, 0], [10_000, 0], [0, 2_000], [0, 0]]);
+    const sep = (await c.get("/v1/insights/daily?from=2025-08-31&to=2025-09-01", token)).body.data;
+    expect(sep.days.map((d: any) => d.expenseMinor)).toEqual([0, 700]); // local-day bucketing
+  });
+  it("rejects an inverted or oversized range and requires dates", async () => {
+    const { token } = await registerUser(c);
+    expect((await c.get("/v1/insights/daily?from=2025-08-05&to=2025-08-01", token)).status).toBe(400);
+    expect((await c.get("/v1/insights/daily?from=2020-01-01&to=2025-01-01", token)).status).toBe(400);
+    expect((await c.get("/v1/insights/daily?from=2025-01-01", token)).status).toBe(400);
+    expect((await c.get("/v1/insights/daily?from=2025-01-01&to=2025-01-01", token)).body.data.days).toHaveLength(1);
+  });
+});

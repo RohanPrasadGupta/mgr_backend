@@ -46,6 +46,8 @@ export const ByCategory = named("ByCategory", obj({
 }));
 export const Trend = named("Trend", obj({ year: z.number().int(), baseCurrency: z.string(), incomeMinor: z.array(money).length(12), expenseMinor: z.array(money).length(12), netMinor: z.array(money).length(12), cumulativeNetMinor: z.array(money).length(12) }));
 
+export const Daily = named("Daily", obj({ from: date, to: date, baseCurrency: z.string(), days: z.array(obj({ date, incomeMinor: money, expenseMinor: money })) }));
+
 const budgetPeriod = z.enum(["month", "week", "custom"]);
 export const Budget = named("Budget", obj({
   id: uuid, userId: uuid, categoryId: uuid.nullable(), period: budgetPeriod, amountMinor: money, currency: z.string(), startOn: date, endOn: date.nullable(),
