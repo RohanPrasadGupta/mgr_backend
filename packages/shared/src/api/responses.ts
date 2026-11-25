@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { accountTypes } from "../schemas/ledger";
 import { assetClasses, tradeTypes } from "../schemas/investments";
+import { debtDirections } from "../schemas/planning";
 
 /**
  * Response contracts. These are `strictObject`s on purpose: the API's integration tests validate every real
@@ -17,7 +18,7 @@ const obj = z.strictObject;
 
 export const ErrorBody = named("ErrorBody", obj({ error: obj({ code: z.string(), message: z.string(), details: z.unknown().optional() }) }));
 
-export const User = named("User", obj({ id: uuid, email: z.email(), name: z.string(), baseCurrency: z.string(), timezone: z.string(), locale: z.string(), weekStart: z.number().int() }));
+export const User = named("User", obj({ id: uuid, email: z.email(), name: z.string(), baseCurrency: z.string(), timezone: z.string(), locale: z.string(), weekStart: z.number().int(), emailVerified: z.boolean() }));
 export const TokenPair = named("TokenPair", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
 export const AuthResult = named("AuthResult", obj({ user: User, accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
 export const Currency = named("Currency", obj({ code: z.string(), name: z.string(), symbol: z.string(), minorUnit: z.number().int() }));
@@ -33,6 +34,7 @@ export const Transaction = named("Transaction", obj({
   id: uuid, userId: uuid, accountId: uuid, categoryId: uuid.nullable(), kind: z.enum(["income", "expense", "transfer_out", "transfer_in"]), amountMinor: money, currency: z.string(),
   fxRate: z.number(), baseAmountMinor: money, occurredAt: dateTime, occurredOn: date, note: nullableString, transferGroupId: uuid.nullable(), clientId: uuid.nullable(), recurringId: uuid.nullable(),
   createdAt: dateTime, updatedAt: dateTime, deletedAt: dateTime.nullable(), version: z.number().int(),
+  tagIds: z.array(uuid), attachmentCount: z.number().int(),
 }));
 export const TransferResult = named("TransferResult", obj({ transferGroupId: uuid, legs: z.array(Transaction) }));
 
@@ -101,6 +103,51 @@ export const PriceSet = named("PriceSet", obj({ assetId: uuid, asOn: date, price
 export const SipResult = named("SipResult", obj({
   totalInvested: z.number(), estimatedReturns: z.number(), maturityValue: z.number(),
   yearlyBreakdown: z.array(obj({ year: z.number().int(), invested: z.number(), returns: z.number(), total: z.number() })),
+}));
+
+export const Accepted = named("Accepted", obj({ accepted: z.literal(true) }));
+export const Verified = named("Verified", obj({ verified: z.literal(true) }));
+
+export const Tag = named("Tag", obj({ id: uuid, userId: uuid, name: z.string(), color: nullableString, createdAt: dateTime, usageCount: z.number().int() }));
+export const Attachment = named("Attachment", obj({ id: uuid, transactionId: uuid, fileName: z.string(), contentType: z.string(), sizeBytes: z.number().int(), createdAt: dateTime }));
+
+export const GoalContribution = named("GoalContribution", obj({ id: uuid, goalId: uuid, amountMinor: money, occurredOn: date, note: nullableString, createdAt: dateTime }));
+export const Goal = named("Goal", obj({
+  id: uuid, userId: uuid, name: z.string(), targetMinor: money, currency: z.string(), targetDate: date.nullable(), accountId: uuid.nullable(), icon: nullableString, color: nullableString,
+  note: nullableString, archived: z.boolean(), createdAt: dateTime, updatedAt: dateTime,
+  /** Where progress comes from: the linked account's balance, or manual contributions. */
+  source: z.enum(["account", "contributions"]), savedMinor: money, remainingMinor: money, pct: z.number(),
+  /** Needed per month from now to hit the target on time (null without a target date or once reached). */
+  monthlyNeededMinor: money.nullable(), status: z.enum(["reached", "on_track", "behind", "no_deadline", "overdue"]),
+}));
+export const GoalDetail = named("GoalDetail", obj({ goal: Goal, contributions: z.array(GoalContribution) }));
+
+export const DebtPayment = named("DebtPayment", obj({ id: uuid, debtId: uuid, amountMinor: money, paidOn: date, note: nullableString, createdAt: dateTime }));
+export const Debt = named("Debt", obj({
+  id: uuid, userId: uuid, direction: z.enum(debtDirections), counterparty: z.string(), principalMinor: money, currency: z.string(), startedOn: date, dueOn: date.nullable(), note: nullableString,
+  createdAt: dateTime, updatedAt: dateTime, paidMinor: money, outstandingMinor: money, status: z.enum(["open", "overdue", "settled"]), lastPaidOn: date.nullable(),
+}));
+export const DebtDetail = named("DebtDetail", obj({ debt: Debt, payments: z.array(DebtPayment) }));
+export const DebtSummary = named("DebtSummary", obj({
+  totals: z.array(obj({ currency: z.string(), owedToMeMinor: money, iOweMinor: money, netMinor: money })),
+  openCount: z.number().int(), overdueCount: z.number().int(),
+}));
+
+export const Note = named("Note", obj({ id: uuid, userId: uuid, title: z.string(), body: z.string(), pinned: z.boolean(), createdAt: dateTime, updatedAt: dateTime }));
+
+const reportCat = obj({ categoryId: uuid.nullable(), name: z.string(), totalMinor: money, pct: z.number(), previousMinor: money, changePct: z.number().nullable() });
+export const Report = named("Report", obj({
+  period: z.enum(["month", "year"]), label: z.string(), from: date, to: date, previousFrom: date, previousTo: date, baseCurrency: z.string(),
+  incomeMinor: money, expenseMinor: money, netMinor: money, savingsRatePct: z.number().nullable(), transactionCount: z.number().int(),
+  previous: obj({ incomeMinor: money, expenseMinor: money, netMinor: money }),
+  /** Daily average spending across the period's days that have already happened. */
+  avgDailyExpenseMinor: money,
+  expenseByCategory: z.array(reportCat), incomeByCategory: z.array(reportCat),
+  /** Months for a yearly report, days for a monthly one. */
+  series: z.array(obj({ label: z.string(), from: date, to: date, incomeMinor: money, expenseMinor: money })),
+  topExpenses: z.array(obj({ id: uuid, occurredOn: date, amountMinor: money, currency: z.string(), baseAmountMinor: money, categoryName: nullableString, note: nullableString, accountName: z.string() })),
+  byAccount: z.array(obj({ accountId: uuid, name: z.string(), currency: z.string(), incomeMinor: money, expenseMinor: money })),
+  budgets: z.array(obj({ id: uuid, categoryName: nullableString, amountMinor: money, spentMinor: money, pct: z.number(), state: z.enum(["ok", "warning", "over"]) })),
 }));
 
 /** `{ data: T }` envelope used by every success response. */

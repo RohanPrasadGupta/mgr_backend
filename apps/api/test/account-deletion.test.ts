@@ -26,6 +26,14 @@ async function populate(email: string) {
   const asset = (await c.post("/v1/investments/assets", { symbol: "PTT", name: "PTT", class: "stock", currency: "THB" }, u.token)).body.data;
   await c.post("/v1/investments/trades", { assetId: asset.id, type: "buy", quantity: 1, priceMinor: 100, tradedOn: "2025-01-01" }, u.token);
   await c.post(`/v1/investments/assets/${asset.id}/prices`, { priceMinor: 120 }, u.token);
+  const tag = (await c.post("/v1/tags", { name: "trip" }, u.token)).body.data;
+  const tx = (await c.post("/v1/transactions", { accountId: cash.id, kind: "expense", amountMinor: 700, tagIds: [tag.id] }, u.token)).body.data;
+  expect((await c.upload(`/v1/transactions/${tx.id}/attachments`, Buffer.from("%PDF-1.4 receipt"), "r.pdf", u.token)).status).toBe(201);
+  const goal = (await c.post("/v1/goals", { name: "Car", targetMinor: 100_000 }, u.token)).body.data;
+  await c.post(`/v1/goals/${goal.id}/contributions`, { amountMinor: 5000 }, u.token);
+  const debt = (await c.post("/v1/debts", { direction: "lent", counterparty: "Sam", principalMinor: 3000 }, u.token)).body.data;
+  await c.post(`/v1/debts/${debt.id}/payments`, { amountMinor: 1000 }, u.token);
+  await c.post("/v1/notes", { title: "Plan", body: "save more" }, u.token);
   return u;
 }
 
@@ -35,6 +43,9 @@ async function rowsOwnedBy(userId: string) {
   return {
     users: await q("users", "id"), refresh: await q("refresh_tokens"), accounts: await q("accounts"), categories: await q("categories"), transactions: await q("transactions"),
     budgets: await q("budgets"), recurring: await q("recurring_rules"), assets: await q("assets"), trades: await q("trades"),
+    tags: await q("tags"), attachments: await q("attachments"), goals: await q("goals"), contributions: await q("goal_contributions"), debts: await q("debts"), payments: await q("debt_payments"), notes: await q("notes"),
+    txTags: Number((await db.execute(sql.raw(`select count(*)::int as n from transaction_tags where tag_id in (select id from tags where user_id = '${userId}')`))).rows[0]!.n),
+    files: (await import("node:fs")).existsSync(`./.test-uploads/${userId}`) ? (await import("node:fs")).readdirSync(`./.test-uploads/${userId}`).length : 0,
     prices: Number((await db.execute(sql.raw(`select count(*)::int as n from asset_prices where asset_id in (select id from assets where user_id = '${userId}')`))).rows[0]!.n),
   };
 }
@@ -51,6 +62,7 @@ describe("DELETE /v1/me", () => {
     expect(res.status).toBe(204);
 
     expect(Object.values(await rowsOwnedBy(a.user.id)).every((n) => n === 0)).toBe(true);
+    expect((await import("node:fs")).existsSync(`./.test-uploads/${a.user.id}`)).toBe(false); // the folder goes too
     expect(await rowsOwnedBy(b.user.id)).toEqual(beforeB);
 
     expect((await c.post("/v1/auth/login", { email: "a@example.com", password: "password123" })).status).toBe(401);

@@ -16,6 +16,7 @@ export const tradeType = pgEnum("trade_type", ["buy", "sell", "dividend", "bonus
 export const tracking = pgEnum("tracking", ["units", "value"]);
 export const budgetPeriod = pgEnum("budget_period", ["month", "week", "custom"]);
 export const recurFrequency = pgEnum("recur_frequency", ["daily", "weekly", "monthly", "yearly"]);
+export const debtDirection = pgEnum("debt_direction", ["lent", "borrowed"]);
 
 export const currencies = pgTable("currencies", {
   code: text("code").primaryKey(),
@@ -46,6 +47,8 @@ export const users = pgTable("users", {
   timezone: text("timezone").notNull().default("UTC"),
   locale: text("locale").notNull().default("en"),
   weekStart: integer("week_start").notNull().default(1),
+  emailVerifiedAt: ts("email_verified_at"),
+  passwordChangedAt: ts("password_changed_at"),
   createdAt: ts("created_at").notNull().defaultNow(),
   deletedAt: ts("deleted_at"),
 });
@@ -235,4 +238,125 @@ export const assetPrices = pgTable(
     source: text("source").notNull().default("manual"),
   },
   (t) => [uniqueIndex("asset_prices_pk").on(t.assetId, t.asOn)],
+);
+
+/** User-defined labels; many-to-many with transactions (a transaction can carry several, e.g. "trip-2026", "work"). */
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("tags_user_name_uq").on(t.userId, sql`lower(${t.name})`)],
+);
+
+export const transactionTags = pgTable(
+  "transaction_tags",
+  {
+    transactionId: uuid("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("transaction_tags_pk").on(t.transactionId, t.tagId), index("transaction_tags_tag_idx").on(t.tagId)],
+);
+
+/** Receipts/invoices attached to a transaction. Bytes live in Storage under `storageKey`; this row is the index. */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    transactionId: uuid("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull().unique(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("attachments_tx_idx").on(t.transactionId), index("attachments_user_idx").on(t.userId)],
+);
+
+/** A savings target. Progress = linked account balance, or the sum of manual contributions when no account is linked. */
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    targetMinor: money("target_minor").notNull(),
+    currency: text("currency").notNull().references(() => currencies.code),
+    targetDate: date("target_date", { mode: "string" }),
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    icon: text("icon"),
+    color: text("color"),
+    note: text("note"),
+    archived: boolean("archived").notNull().default(false),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [check("goals_target_positive", sql`${t.targetMinor} > 0`), index("goals_user_idx").on(t.userId)],
+);
+
+export const goalContributions = pgTable(
+  "goal_contributions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    goalId: uuid("goal_id").notNull().references(() => goals.id, { onDelete: "cascade" }),
+    /** Positive = saved toward the goal, negative = taken out. */
+    amountMinor: money("amount_minor").notNull(),
+    occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+    note: text("note"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [check("goal_contrib_nonzero", sql`${t.amountMinor} <> 0`), index("goal_contrib_goal_idx").on(t.goalId, t.occurredOn)],
+);
+
+/** Money lent to or borrowed from someone, tracked outside the ledger. Outstanding = principal − payments. */
+export const debts = pgTable(
+  "debts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    direction: debtDirection("direction").notNull(),
+    counterparty: text("counterparty").notNull(),
+    principalMinor: money("principal_minor").notNull(),
+    currency: text("currency").notNull().references(() => currencies.code),
+    startedOn: date("started_on", { mode: "string" }).notNull(),
+    dueOn: date("due_on", { mode: "string" }),
+    note: text("note"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [check("debts_principal_positive", sql`${t.principalMinor} > 0`), index("debts_user_idx").on(t.userId)],
+);
+
+export const debtPayments = pgTable(
+  "debt_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    debtId: uuid("debt_id").notNull().references(() => debts.id, { onDelete: "cascade" }),
+    amountMinor: money("amount_minor").notNull(),
+    paidOn: date("paid_on", { mode: "string" }).notNull(),
+    note: text("note"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [check("debt_payments_positive", sql`${t.amountMinor} > 0`), index("debt_payments_debt_idx").on(t.debtId, t.paidOn)],
+);
+
+export const notes = pgTable(
+  "notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("notes_user_idx").on(t.userId, t.pinned, t.updatedAt)],
 );
