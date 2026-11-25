@@ -98,7 +98,7 @@ All schemas use `{ timestamps: true }` (`createdAt`, `updatedAt`). All `currency
 `date` (req), `amount` (req, min 0), `transactionCharge` (req, min 0, default 0), `totalAmount` (req, min 0 — computed `amount + transactionCharge` by the service on update; the model hook has the same `!totalAmount` caveat as 4.1), `type` (enum BUY\|SELL, default BUY), `currency` (default **`THB`**). Index `{date:-1}`.
 
 ### 4.4 `SipCapital` (`sipcapitals`) — mutual-fund SIP contribution
-`name` (req, trim — fund name, e.g. Nabil / NIC), `date` (req), `amount` (req, min 0), `currency` (default `NPR`). Index `{date:-1}`. **No `type`** — contributions only.
+`name` (req, trim — fund name), `date` (req), `amount` (req, min 0), `currency` (default `NPR`). Index `{date:-1}`. **No `type`** — contributions only.
 
 ### 4.5 `SsfCapital` (`ssfcapitals`) — Nepal Social Security Fund contributions *(missing from the stock README)*
 `amount` (req, min 0 — per-month amount), `monthsPaid` (req, min 1), `totalAmount` (req, min 0 — **always** recomputed `amount*monthsPaid` in the pre-save hook **and** the service), `dateAdded` (req — when the row was recorded), `paidDate` (req — what the range filters use), `currency` (default `NPR`), `notes` (trim, default `""`). Indexes `{paidDate:-1}`, `{dateAdded:-1}`.

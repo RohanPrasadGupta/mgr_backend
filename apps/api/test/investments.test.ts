@@ -9,16 +9,16 @@ afterAll(async () => { await app.close(); });
 beforeEach(async () => { await resetDb(app); });
 
 const mkAsset = async (token: string, body: object = {}) =>
-  (await c.post("/v1/investments/assets", { symbol: "nabil", name: "Nabil Bank", class: "stock", currency: "THB", ...body }, token)).body.data;
+  (await c.post("/v1/investments/assets", { symbol: "acme", name: "Acme Corporation", class: "stock", currency: "THB", ...body }, token)).body.data;
 
 describe("assets + trades", () => {
   it("creates assets with class-based tracking, rejects duplicates and bad currency", async () => {
     const { token } = await registerUser(c);
     const stock = await mkAsset(token);
-    expect(stock).toMatchObject({ symbol: "NABIL", tracking: "units", costMethod: "wavg" });
-    const sip = await mkAsset(token, { symbol: "NIC-SIP", class: "fund" });
+    expect(stock).toMatchObject({ symbol: "ACME", tracking: "units", costMethod: "wavg" });
+    const sip = await mkAsset(token, { symbol: "GROWTH-SIP", class: "fund" });
     expect(sip.tracking).toBe("value");
-    expect((await c.post("/v1/investments/assets", { symbol: "NABIL", name: "x", class: "stock", currency: "THB" }, token)).status).toBe(409);
+    expect((await c.post("/v1/investments/assets", { symbol: "ACME", name: "x", class: "stock", currency: "THB" }, token)).status).toBe(409);
     expect((await c.post("/v1/investments/assets", { symbol: "X", name: "x", class: "stock", currency: "ZZZ" }, token)).status).toBe(422);
   });
 
@@ -87,7 +87,7 @@ describe("assets + trades", () => {
 
   it("value assets (SIP/SSF): contributions, withdrawals, fees, current value and gain", async () => {
     const { token } = await registerUser(c);
-    const f = await mkAsset(token, { symbol: "NIC SIP", class: "fund" });
+    const f = await mkAsset(token, { symbol: "GROWTH SIP", class: "fund" });
     const add = (b: object) => c.post("/v1/investments/trades", { assetId: f.id, ...b }, token);
     await add({ type: "contribution", amountMinor: 100_000, feeMinor: 500, tradedOn: "2025-01-01" });
     await add({ type: "contribution", amountMinor: 100_000, tradedOn: "2025-02-01" });
@@ -119,10 +119,10 @@ describe("portfolio", () => {
 
   it("excludes assets in currencies with no FX rate instead of guessing", async () => {
     const { token } = await registerUser(c);
-    const n = await mkAsset(token, { symbol: "NEPSE1", currency: "NPR" });
+    const n = await mkAsset(token, { symbol: "LOCAL1", currency: "NPR" });
     await c.post("/v1/investments/trades", { assetId: n.id, type: "buy", quantity: 1, priceMinor: 100, tradedOn: "2025-01-01" }, token);
     const p = (await c.get("/v1/investments/portfolio", token)).body.data;
-    expect(p.excluded[0]).toMatchObject({ symbol: "NEPSE1" });
+    expect(p.excluded[0]).toMatchObject({ symbol: "LOCAL1" });
     expect(p.investedMinor).toBe(0);
     expect(p.holdings).toHaveLength(1); // still shown in its own currency
   });
@@ -140,21 +140,21 @@ describe("calc", () => {
 
 describe("v1 investment import", () => {
   const stock = [
-    { _id: { $oid: "a1" }, stockSymbol: "nabil", stockName: "Nabil Bank", type: "BUY", price: 1000, quantity: 10, totalAmount: 10_000, investedDate: { $date: "2025-01-10T00:00:00Z" }, currency: "NPR", useForAvgPrice: true },
-    { _id: { $oid: "a2" }, stockSymbol: "NABIL", stockName: "Nabil Bank", type: "BUY", price: 1200, quantity: 10, totalAmount: 12_000, investedDate: "2025-02-10T00:00:00Z", currency: "NPR", useForAvgPrice: false },
-    { _id: { $oid: "a3" }, stockSymbol: "NABIL", stockName: "Nabil Bank", type: "SELL", price: 1500, quantity: 5, totalAmount: 7_500, investedDate: "2025-03-10T00:00:00Z", currency: "NPR" },
+    { _id: { $oid: "a1" }, stockSymbol: "acme", stockName: "Acme Corporation", type: "BUY", price: 1000, quantity: 10, totalAmount: 10_000, investedDate: { $date: "2025-01-10T00:00:00Z" }, currency: "NPR", useForAvgPrice: true },
+    { _id: { $oid: "a2" }, stockSymbol: "ACME", stockName: "Acme Corporation", type: "BUY", price: 1200, quantity: 10, totalAmount: 12_000, investedDate: "2025-02-10T00:00:00Z", currency: "NPR", useForAvgPrice: false },
+    { _id: { $oid: "a3" }, stockSymbol: "ACME", stockName: "Acme Corporation", type: "SELL", price: 1500, quantity: 5, totalAmount: 7_500, investedDate: "2025-03-10T00:00:00Z", currency: "NPR" },
     { stockSymbol: "BAD", type: "BUY", price: -1, quantity: 1, investedDate: "2025-03-10" },
   ];
   it("imports stock trades with the manual-average flag, dry-run first, idempotently", async () => {
     const { token } = await registerUser(c);
     const dry = (await c.post("/v1/imports/investments", { source: "stock-transactions", rows: stock, dryRun: true }, token)).body.data;
-    expect(dry).toMatchObject({ imported: 3, invalid: [{ row: 4 }], createdAssets: ["stock:NABIL"], positionErrors: [] });
+    expect(dry).toMatchObject({ imported: 3, invalid: [{ row: 4 }], createdAssets: ["stock:ACME"], positionErrors: [] });
     expect((await c.get("/v1/investments/assets", token)).body.data).toHaveLength(0);
     const r = (await c.post("/v1/imports/investments", { source: "stock-transactions", rows: stock }, token)).body.data;
     expect(r).toMatchObject({ imported: 3, duplicates: 0 });
     expect((await c.post("/v1/imports/investments", { source: "stock-transactions", rows: stock }, token)).body.data).toMatchObject({ imported: 0, duplicates: 3 });
     const [h] = (await c.get("/v1/investments/assets", token)).body.data;
-    expect(h.asset).toMatchObject({ symbol: "NABIL", currency: "NPR", costMethod: "manual" });
+    expect(h.asset).toMatchObject({ symbol: "ACME", currency: "NPR", costMethod: "manual" });
     expect(h).toMatchObject({ quantity: 15, avgCostMinor: 1000 * 100, tradeCount: 3 }); // only the flagged buy: 10 000 NPR / 10 units = 1 000 NPR = 100 000 paisa
     expect(h.realisedPnlMinor).toBe(750_000 - 550_000); // sell 7 500 vs running avg 1 100 × 5 (in paisa)
   });
@@ -164,14 +164,14 @@ describe("v1 investment import", () => {
     const imp = async (source: string, rows: object[]) => (await c.post("/v1/imports/investments", { source, rows }, token)).body.data;
     expect(await imp("stock-capital", [{ date: "2025-01-01", amount: 50_000, type: "BUY", currency: "NPR" }, { date: "2025-02-01", amount: 10_000, type: "SELL", currency: "NPR" }])).toMatchObject({ imported: 2 });
     expect(await imp("coin-capital", [{ date: "2025-01-05", amount: 3_000, transactionCharge: 30, totalAmount: 3_030, type: "BUY", currency: "THB" }])).toMatchObject({ imported: 1 });
-    expect(await imp("sip-capital", [{ name: "Nabil Equity", date: "2025-01-05", amount: 5_000, currency: "NPR" }, { name: "NIC Asia", date: "2025-01-05", amount: 2_000, currency: "NPR" }])).toMatchObject({ imported: 2 });
+    expect(await imp("sip-capital", [{ name: "Example Equity Fund", date: "2025-01-05", amount: 5_000, currency: "NPR" }, { name: "Growth Fund", date: "2025-01-05", amount: 2_000, currency: "NPR" }])).toMatchObject({ imported: 2 });
     expect(await imp("ssf-capital", [{ amount: 1_000, monthsPaid: 3, totalAmount: 3_000, dateAdded: "2025-01-01", paidDate: "2025-01-31", currency: "NPR", notes: "Q1" }])).toMatchObject({ imported: 1 });
     const hs = (await c.get("/v1/investments/assets", token)).body.data;
     const get = (sym: string) => hs.find((h: any) => h.asset.symbol === sym);
     expect(get("STOCK-CAPITAL")).toMatchObject({ contributedMinor: 5_000_000, withdrawnMinor: 1_000_000, remainingCostMinor: 4_000_000 });
     expect(get("COIN-CAPITAL")).toMatchObject({ contributedMinor: 300_000, feesMinor: 3_000, remainingCostMinor: 303_000 });
     expect(get("SSF")).toMatchObject({ contributedMinor: 300_000 });
-    expect(hs.map((h: any) => h.asset.symbol).sort()).toEqual(["COIN-CAPITAL", "NABIL EQUITY", "NIC ASIA", "SSF", "STOCK-CAPITAL"]);
+    expect(hs.map((h: any) => h.asset.symbol).sort()).toEqual(["COIN-CAPITAL", "EXAMPLE EQUITY FUND", "GROWTH FUND", "SSF", "STOCK-CAPITAL"]);
     const trades = (await c.get("/v1/investments/trades?assetId=" + get("SSF").asset.id, token)).body.data;
     expect(trades[0].note).toBe("3 month(s) × 1000 — Q1");
   });

@@ -122,7 +122,7 @@ Argon2id, refresh-token rotation + reuse detection, rate limits (login, import),
 **P1 Ledger** — [x] users/settings (`/me`), [x] currencies + FX (daily USD-based rates from open.er-api.com, cross rates, as-of/approximate fallback, 12h auto refresh, `GET /fx`; explicit `fxRate` still overrides), [x] accounts, [x] categories (sub-categories + tags), [x] transactions + transfers (+ tags, attachments), [x] insights (summary, by-category, trend), [x] v1 importer (`POST /imports/transactions` with dry-run + idempotent dedupe, CLI `pnpm import:v1` for the xls; verified on the real 2,080-row file, totals match to the cent) — Mongo-direct import not built
 **P2 Planning** — [x] budgets (month/week/custom, overall or per category incl. sub-categories, ok/warning/over status), [x] recurring (daily/weekly/monthly/yearly + interval, month-end clamping, backfill option, in-process scheduler every 15 min + `POST /recurring/run-due`; no BullMQ yet), [x] goals, [x] debts, [x] notes, [x] reports (JSON; CSV/PDF on the web), [ ] notifications + push (deferred)
 **P3 Mobile readiness** — [ ] sync endpoints, [ ] Google/Apple login, [ ] biometric-friendly session handling, [ ] RevenueCat webhook + entitlements
-**P4 Investments** — [x] assets + trades (buy/sell/bonus/dividend/fee for unit assets; contribution/withdrawal/dividend/fee for value assets like SIP/SSF/capital), [x] cost-basis engine in `packages/shared` (wavg, FIFO, v1-style `manual` average) with oversell protection, [x] manual prices (`POST /investments/assets/:id/prices`), per-asset + portfolio P/L, return %, XIRR, allocation, [x] v1 importers (stock-transactions, stock-capital, coin-capital, sip-capital, ssf-capital; mongoexport JSON accepted), [x] `POST /calc/sip`, [ ] price providers (global stocks/crypto; NEPSE manual/scrape adapter), [ ] SIP/SSF scheduled contributions + reminders, [ ] portfolio value history chart
+**P4 Investments** — [x] assets + trades (buy/sell/bonus/dividend/fee for unit assets; contribution/withdrawal/dividend/fee for value assets like SIP/SSF/capital), [x] cost-basis engine in `packages/shared` (wavg, FIFO, v1-style `manual` average) with oversell protection, [x] manual prices (`POST /investments/assets/:id/prices`), per-asset + portfolio P/L, return %, XIRR, allocation, [x] v1 importers (stock-transactions, stock-capital, coin-capital, sip-capital, ssf-capital; mongoexport JSON accepted), [x] `POST /calc/sip`, [ ] portfolio value history chart (from recorded trades + manual prices), [ ] scheduled fund contributions (SIP/pension) + reminders. **Decided 2026-11-25: no market-data feeds** — users are in any country, so prices stay manual (stocks/funds: buy/sell, average cost, realised/unrealised P/L from the price the user enters; pension funds like SSF: contributions only). A live crypto price may be added later as an opt-in.
 **P5 AI / sharing** — [ ] auto-categorise, [ ] receipt OCR, [ ] insights chat, [ ] workspaces + shared budgets + split expenses
 **P6 AWS** — [ ] Dockerfiles, [ ] Terraform (VPC, RDS, ElastiCache, ECS, S3/CloudFront, SES), [ ] staging/prod, [ ] backups, alarms, [ ] load test
 
@@ -132,10 +132,10 @@ Migration + RLS, Zod schema in `packages/shared`, OpenAPI updated, unit tests fo
 ## 11. Open decisions
 - NestJS vs Hono; Drizzle vs Prisma.
 - Auth: self-run (Better Auth) vs Cognito from day one.
-- Price data providers & licensing (global stocks/crypto; NEPSE has no official API).
+- Live prices: none for now (manual prices only, any country). Possible later: opt-in crypto price feed.
 - Sync design: simple last-write-wins with versions vs CRDT/PowerSync.
 - Pricing/tiers (free vs Pro).
-- Supported locales at launch (en, th, ne?).
+- Supported locales at launch.
 
 ## 11b. Status log
 - 2026-11-24: P0 + most of P1 implemented. 15 API integration tests (real Postgres) + 5 shared unit tests pass; `pnpm build` produces a running `dist/main.js`; verified live register → accounts → 401 without token.
