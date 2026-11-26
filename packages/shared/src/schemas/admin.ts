@@ -12,6 +12,13 @@ export const adminRefreshSchema = z.object({ refreshToken: z.string().min(20).ma
 export const adminReasonSchema = z.object({ reason });
 export const adminDeleteUserSchema = z.object({ reason, confirmEmail: email });
 
+/** Admin accounts (owners only). Passwords are never chosen here: the API returns a one-time password to hand over. */
+export const adminRoles = ["owner", "admin"] as const;
+export const adminCreateSchema = z.object({ email, name: z.string().trim().min(1).max(100), role: z.enum(adminRoles).default("admin"), reason });
+export const adminRoleSchema = z.object({ role: z.enum(adminRoles), reason });
+/** Admin passwords are longer than customer ones: these accounts can see every user. */
+export const adminChangePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(12, "Use at least 12 characters").max(128) });
+
 export const adminUserStatuses = ["all", "active", "suspended", "unverified"] as const;
 export const adminUsersQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -26,6 +33,9 @@ export const adminAuditQuerySchema = z.object({
 });
 /** What a support view can show. Each read is audited. */
 export const supportDataKinds = ["accounts", "transactions", "categories", "budgets", "recurring", "goals", "debts", "notes", "investments", "attachments"] as const;
+export type AdminCreateInput = z.infer<typeof adminCreateSchema>;
+export type AdminRoleInput = z.infer<typeof adminRoleSchema>;
+export type AdminChangePasswordInput = z.infer<typeof adminChangePasswordSchema>;
 export type SupportDataKind = (typeof supportDataKinds)[number];
 
 export type AdminLoginInput = z.infer<typeof adminLoginSchema>;

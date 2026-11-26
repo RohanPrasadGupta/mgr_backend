@@ -172,7 +172,13 @@ export const AdminLoginStep = named("AdminLoginStep", obj({
   /** setup = scan the QR / enter the secret in an authenticator app, then send the first code; mfa = send the current code. */
   step: z.enum(["setup", "mfa"]), mfaToken: z.string(), otpauthUrl: z.string().optional(), secret: z.string().optional(),
 }));
-export const AdminProfile = named("AdminProfile", obj({ id: uuid, email: z.string(), name: z.string(), lastLoginAt: dateTime.nullable() }));
+export const AdminProfile = named("AdminProfile", obj({ id: uuid, email: z.string(), name: z.string(), role: z.enum(["owner", "admin"]), mustChangePassword: z.boolean(), lastLoginAt: dateTime.nullable() }));
+export const AdminAccount = named("AdminAccount", obj({
+  id: uuid, email: z.string(), name: z.string(), role: z.enum(["owner", "admin"]), twoFactorEnabled: z.boolean(), mustChangePassword: z.boolean(),
+  lastLoginAt: dateTime.nullable(), disabledAt: dateTime.nullable(), createdAt: dateTime,
+}));
+/** The one-time password is in this response only: it is never stored in plain text or shown again. */
+export const AdminAccountWithPassword = named("AdminAccountWithPassword", obj({ admin: AdminAccount, temporaryPassword: z.string() }));
 export const AdminSession = named("AdminSession", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int(), admin: AdminProfile }));
 export const AdminTokens = named("AdminTokens", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
 export const AdminStats = named("AdminStats", obj({

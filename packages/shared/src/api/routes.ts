@@ -16,7 +16,7 @@ import {
 } from "../schemas/planning";
 import { currencyCode, isoDate } from "../schemas/common";
 import {
-  adminAuditQuerySchema, adminDeleteUserSchema, adminLoginSchema, adminMfaSchema, adminReasonSchema, adminRefreshSchema, adminUsersQuerySchema,
+  adminAuditQuerySchema, adminChangePasswordSchema, adminCreateSchema, adminDeleteUserSchema, adminLoginSchema, adminRoleSchema, adminMfaSchema, adminReasonSchema, adminRefreshSchema, adminUsersQuerySchema,
 } from "../schemas/admin";
 
 export interface RouteDef {
@@ -160,6 +160,14 @@ export const routes: RouteDef[] = [
   r("post", "/admin/auth/refresh", "adminRefresh", "Admin", "Rotate the admin refresh token", 200, data(R.AdminTokens), { body: adminRefreshSchema, public: true }),
   r("post", "/admin/auth/logout", "adminLogout", "Admin", "End the admin session", 204, null, { body: adminRefreshSchema, public: true }),
   r("get", "/admin/me", "adminMe", "Admin", "Signed-in admin", 200, data(R.AdminProfile)),
+  r("post", "/admin/me/password", "adminChangePassword", "Admin", "Change your own admin password (required after a one-time password)", 204, null, { body: adminChangePasswordSchema }),
+  r("get", "/admin/admins", "adminListAdmins", "Admin", "Admin accounts (owners only)", 200, data(z.array(R.AdminAccount))),
+  r("post", "/admin/admins", "adminCreateAdmin", "Admin", "Add an admin; returns a one-time password (owners only)", 201, data(R.AdminAccountWithPassword), { body: adminCreateSchema }),
+  r("post", "/admin/admins/{id}/disable", "adminDisableAdmin", "Admin", "Block an admin and end their sessions (owners only)", 200, data(R.AdminAccount), { body: adminReasonSchema }),
+  r("post", "/admin/admins/{id}/enable", "adminEnableAdmin", "Admin", "Let a disabled admin sign in again (owners only)", 200, data(R.AdminAccount), { body: adminReasonSchema }),
+  r("post", "/admin/admins/{id}/reset-2fa", "adminResetAdmin2fa", "Admin", "Clear their authenticator; next sign-in enrols a new one (owners only)", 200, data(R.AdminAccount), { body: adminReasonSchema }),
+  r("post", "/admin/admins/{id}/reset-password", "adminResetAdminPassword", "Admin", "Issue a new one-time password and end their sessions (owners only)", 200, data(R.AdminAccountWithPassword), { body: adminReasonSchema }),
+  r("post", "/admin/admins/{id}/role", "adminSetAdminRole", "Admin", "Make an admin an owner or a regular admin (owners only)", 200, data(R.AdminAccount), { body: adminRoleSchema }),
   r("get", "/admin/stats", "adminStats", "Admin", "Usage overview (no financial amounts)", 200, data(R.AdminStats)),
   r("get", "/admin/users", "adminListUsers", "Admin", "Search and filter users", 200, data(R.AdminUserPage), { query: adminUsersQuerySchema }),
   r("get", "/admin/users/{id}", "adminGetUser", "Admin", "User overview: profile, counts, sessions, recent audit (no financial amounts)", 200, data(R.AdminUserDetail)),

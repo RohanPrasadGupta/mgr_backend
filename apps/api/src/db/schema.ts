@@ -371,6 +371,10 @@ export const admins = pgTable("admins", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  /** owner = can also add, disable and reset other admins (the Admins page); admin = support tools only. */
+  role: text("role", { enum: ["owner", "admin"] }).notNull().default("admin"),
+  /** Set when an owner issues a one-time password: every admin route except changing it is refused until it's changed. */
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   /** Authenticator-app secret, AES-256-GCM encrypted (never stored or logged in plain text). Confirmed once `totpEnabledAt` is set. */
   totpSecretEnc: text("totp_secret_enc"),
   totpEnabledAt: ts("totp_enabled_at"),
