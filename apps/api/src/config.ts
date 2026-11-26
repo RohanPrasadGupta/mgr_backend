@@ -18,7 +18,9 @@ const schema = z.object({
   /** Public web URL used in email links (reset password, verify email). */
   APP_URL: z.string().url().default("http://localhost:3000"),
   /** smtp = send via SMTP_URL (Mailpit locally); log = print the link to the server log; memory = keep in process (tests). */
-  MAIL_TRANSPORT: z.enum(["smtp", "log", "memory"]).default("log"),
+  MAIL_TRANSPORT: z.enum(["smtp", "brevo", "log", "memory"]).default("log"),
+  /** brevo = send through Brevo's HTTPS API (works where outgoing SMTP is blocked). MAIL_FROM must be a sender verified in Brevo. */
+  BREVO_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   SMTP_URL: z.string().default("smtp://localhost:1025"),
   MAIL_FROM: z.string().default("MoneyMgr <no-reply@moneymgr.local>"),
   /** Per-IP requests per minute across the whole API (a page load makes ~10 calls, so keep this generous). */
@@ -45,6 +47,7 @@ const schema = z.object({
   ADMIN_SUPPORT_MINUTES: z.coerce.number().int().min(1).max(120).default(30),
 }).transform((c, ctx) => {
   if (!c.ADMIN_SECRET && c.NODE_ENV === "production") ctx.addIssue({ code: "custom", path: ["ADMIN_SECRET"], message: "ADMIN_SECRET is required in production" });
+  if (c.MAIL_TRANSPORT === "brevo" && !c.BREVO_API_KEY) ctx.addIssue({ code: "custom", path: ["BREVO_API_KEY"], message: "BREVO_API_KEY is required when MAIL_TRANSPORT=brevo" });
   if (c.ADMIN_SECRET && c.ADMIN_SECRET === c.JWT_SECRET) ctx.addIssue({ code: "custom", path: ["ADMIN_SECRET"], message: "ADMIN_SECRET must differ from JWT_SECRET" });
   return {
     ...c,

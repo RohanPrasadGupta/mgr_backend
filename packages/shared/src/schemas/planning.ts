@@ -50,6 +50,13 @@ export const listDebtsSchema = z.object({ status: z.enum(["open", "settled", "al
 export const createNoteSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().max(20_000).default(""), pinned: z.boolean().default(false) });
 export const updateNoteSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().max(20_000), pinned: z.boolean() }).partial();
 export const listNotesSchema = z.object({ q: z.string().trim().min(1).max(100).optional() });
+/** One note from another app. `date` (any ISO date/time) becomes its created/updated time; `content` is accepted as `body`. */
+export const importNoteRowSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  body: z.string().max(20_000).default(""),
+  date: z.string().max(40).optional(),
+});
+export const importNotesSchema = z.object({ rows: z.array(z.unknown()).min(1).max(10_000), dryRun: z.boolean().default(false) });
 
 // ── reports ──
 export const reportQuerySchema = z.object({
@@ -68,4 +75,5 @@ export type UpdateDebtInput = z.infer<typeof updateDebtSchema>;
 export type DebtPaymentInput = z.infer<typeof debtPaymentSchema>;
 export type CreateNoteInput = z.infer<typeof createNoteSchema>;
 export type UpdateNoteInput = z.infer<typeof updateNoteSchema>;
+export type ImportNotesInput = z.infer<typeof importNotesSchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;

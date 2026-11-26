@@ -182,6 +182,31 @@ describe("notes", () => {
   });
 });
 
+describe("notes import", () => {
+  const rows = [
+    { title: "Tax documents", content: "keep receipts", date: "2025-03-01 09:30:00" }, // v1 calls the text "content"
+    { title: "Wifi", body: "password on the router", date: "2025-04-02T03:00:00.000Z" },
+    { title: "", content: "no title" },
+    { title: "Bad date", content: "x", date: "someday" },
+  ];
+  it("dry-runs, imports with the original dates (in the user's time zone), reports bad rows and never duplicates", async () => {
+    const dry = (await c.post("/v1/imports/notes", { rows, dryRun: true }, t)).body.data;
+    expect(dry).toMatchObject({ dryRun: true, total: 4, imported: 2, duplicates: 0 });
+    expect(dry.invalid.map((x: any) => x.row)).toEqual([3, 4]);
+    expect((await c.get("/v1/notes", t)).body.data).toEqual([]);
+
+    expect((await c.post("/v1/imports/notes", { rows }, t)).body.data).toMatchObject({ imported: 2, duplicates: 0 });
+    const saved = (await c.get("/v1/notes", t)).body.data;
+    const tax = saved.find((n: any) => n.title === "Tax documents");
+    expect(tax.body).toBe("keep receipts");
+    expect(tax.createdAt).toBe("2025-03-01T02:30:00.000Z"); // 09:30 in Asia/Bangkok
+    expect(saved.find((n: any) => n.title === "Wifi").createdAt).toBe("2025-04-02T03:00:00.000Z");
+
+    expect((await c.post("/v1/imports/notes", { rows }, t)).body.data).toMatchObject({ imported: 0, duplicates: 2 });
+    expect((await c.get("/v1/notes", t)).body.data).toHaveLength(2);
+  });
+});
+
 describe("reports", () => {
   it("windows: month (incl. January → previous December) and year", () => {
     expect(reportWindow({ period: "month", year: 2026, month: 1 })).toMatchObject({ label: "January 2026", from: "2026-01-01", to: "2026-01-31", previousFrom: "2025-12-01", previousTo: "2025-12-31" });

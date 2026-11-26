@@ -25,6 +25,7 @@ import { HealthController } from "./modules/health/health.controller";
 import { ImportsController } from "./modules/imports/imports.controller";
 import { InvestmentImportsService } from "./modules/imports/investment-imports.service";
 import { ImportsService } from "./modules/imports/imports.service";
+import { NoteImportsService } from "./modules/imports/note-imports.service";
 import { InsightsController } from "./modules/insights/insights.controller";
 import { InsightsService } from "./modules/insights/insights.service";
 import { TransactionsController } from "./modules/transactions/transactions.controller";
@@ -60,7 +61,7 @@ import { AuditService } from "./modules/admin/audit.service";
     { provide: STORAGE, inject: [CONFIG], useFactory: (c: Config) => new DiskStorage(c.UPLOAD_DIR) },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
-    AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService, AccountDeletionService,
+    AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService, NoteImportsService, AccountDeletionService,
     TagsService, AttachmentsService, GoalsService, DebtsService, NotesService, ReportsService,
     AuditService, AdminAuthService, AdminService, AdminGuard,
   ],

@@ -103,6 +103,10 @@ export const importTransactionsSchema = z.object({
   rows: z.array(z.unknown()).min(1).max(10_000),
   dryRun: z.boolean().default(false),
 });
+/** One category from another app: an emoji at the start of the name becomes the icon ("🍜 Food" → 🍜 + "Food"). */
+export const importCategoryRowSchema = z.object({ name: z.string().trim().min(1).max(80), type: z.enum(["Income", "Expense"]) });
+export const importCategoriesSchema = z.object({ rows: z.array(z.unknown()).min(1).max(10_000), dryRun: z.boolean().default(false) });
+export type ImportCategoriesInput = z.infer<typeof importCategoriesSchema>;
 export type ImportRow = z.infer<typeof importRowSchema>;
 export type ImportTransactionsInput = z.infer<typeof importTransactionsSchema>;
 

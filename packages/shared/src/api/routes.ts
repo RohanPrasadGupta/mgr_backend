@@ -8,10 +8,10 @@ import {
 import {
   createAssetSchema, createTradeSchema, importInvestmentsSchema, listTradesSchema, portfolioHistorySchema, setPriceSchema, sipCalcSchema, updateAssetSchema, updateTradeSchema,
 } from "../schemas/investments";
-import { importTransactionsSchema } from "../schemas/ledger";
+import { importCategoriesSchema, importTransactionsSchema } from "../schemas/ledger";
 import { changePasswordSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from "../schemas/auth";
 import {
-  createDebtSchema, createGoalSchema, createNoteSchema, createTagSchema, debtPaymentSchema, goalContributionSchema, listDebtsSchema, listNotesSchema, reportQuerySchema,
+  createDebtSchema, createGoalSchema, createNoteSchema, importNotesSchema, createTagSchema, debtPaymentSchema, goalContributionSchema, listDebtsSchema, listNotesSchema, reportQuerySchema,
   updateDebtSchema, updateGoalSchema, updateNoteSchema, updateTagSchema,
 } from "../schemas/planning";
 import { currencyCode, isoDate } from "../schemas/common";
@@ -100,6 +100,8 @@ export const routes: RouteDef[] = [
   r("delete", "/recurring/{id}", "deleteRecurring", "Recurring", "Delete a rule", 204, null),
 
   r("post", "/imports/transactions", "importTransactions", "Import", "Import transactions (dry-run supported, idempotent)", 200, data(R.ImportReport), { body: importTransactionsSchema }),
+  r("post", "/imports/categories", "importCategories", "Import", "Import categories (dry-run supported, idempotent)", 200, data(R.CategoryImportReport), { body: importCategoriesSchema }),
+  r("post", "/imports/notes", "importNotes", "Import", "Import notes (dry-run supported, idempotent)", 200, data(R.NoteImportReport), { body: importNotesSchema }),
   r("post", "/imports/investments", "importInvestments", "Import", "Import v1 investment documents (dry-run supported, idempotent)", 200, data(R.InvestmentImportReport), { body: importInvestmentsSchema }),
 
   r("get", "/investments/portfolio", "getPortfolio", "Investments", "Portfolio totals in the base currency", 200, data(R.Portfolio)),

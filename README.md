@@ -26,6 +26,8 @@ Layout: `apps/api` (Nest app, `src/modules/*`, `drizzle/` migrations, `test/`), 
 | Transfers | `POST /transfers` (cross-currency needs `toAmountMinor`) |
 | FX | `GET /fx?from&to&date` (stored daily rates; `pnpm --filter @moneymgr/api fx:refresh` to pull now, auto-refresh every 12h) |
 | Import | `POST /imports/transactions` `{rows, dryRun}` — rows `{date, account, category, note, currency, amount, type: Income\|Expense}`; emoji prefixes become category icons; re-import is idempotent |
+| Import categories | `POST /imports/categories` `{rows, dryRun}` — rows `{name, type: Income\|Expense}`; a leading emoji becomes the icon; existing ones are skipped (and get the emoji if they had no icon) |
+| Import notes | `POST /imports/notes` `{rows, dryRun}` — rows `{title, body, date?}` (v1 "content" is accepted as body); a note with the same title and body as an existing one is skipped |
 | Budgets | `GET/POST /budgets`, `PATCH/DELETE /budgets/:id`, `GET /budgets/status?date=` (spent, remaining, pct, `ok\|warning\|over`) |
 | Recurring | `GET/POST /recurring`, `GET/PATCH/DELETE /recurring/:id`, `POST /recurring/run-due` — posts due occurrences; also runs automatically every 15 min |
 | Investments | `GET/POST /investments/assets`, `GET/PATCH/DELETE /investments/assets/:id` (holding: qty, avg cost, P/L, XIRR), `GET/POST /investments/assets/:id/prices`, `GET/POST /investments/trades`, `PATCH/DELETE /investments/trades/:id`, `GET /investments/portfolio`, `POST /calc/sip`, `POST /imports/investments` (v1 Mongo docs) |
@@ -65,6 +67,13 @@ pnpm --filter @moneymgr/api import:v1 -- --file "/path/Money Manager_8-26-25.xls
 pnpm --filter @moneymgr/api import:v1 -- --file "/path/Money Manager_8-26-25.xls" --email you@example.com
 ```
 Register the user first (via `/v1/auth/register`). Non-base-currency rows need a stored FX rate, otherwise they are reported as invalid, never silently dropped.
+
+## Moving from the old app (Excel backup)
+In the old MoneyMgr: **Export Data → Download Excel backup** (one `.xlsx` with every transaction, category, currency, note,
+stock trade and investment record). In the new web app: **Import → Restore from old app**, choose the file, **Check**, then
+**Import everything**. It calls `POST /imports/categories` (first, so categories keep their emoji), `/imports/transactions`, `/imports/notes`
+and `/imports/investments` (one per sheet, ≤10,000 rows per request); all are idempotent, so re-importing the same file adds nothing. Currencies aren't imported — the new app
+knows them all — but the screen warns about any code it doesn't support.
 
 ## API contract (OpenAPI)
 `GET /openapi.json` (no auth) serves the OpenAPI 3.1 document; `apps/api/openapi.json` is the committed copy. It is generated from the route registry in `packages/shared/src/api/routes.ts`, and every integration test validates real responses against it. After changing an endpoint run `pnpm --filter @moneymgr/api openapi` and regenerate the clients.

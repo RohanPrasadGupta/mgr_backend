@@ -143,3 +143,28 @@ describe("import", () => {
     expect(t.occurredAt).toBe("2025-08-31T16:30:00.000Z");
   });
 });
+
+describe("categories import", () => {
+  it("creates missing categories with their emoji icons, skips ones that exist, and the transaction import then reuses them", async () => {
+    const { token } = await registerUser(c);
+    const rows = [
+      { name: "🍜 Food", type: "Expense" }, // every new user already has Food
+      { name: "🌐 work", type: "Expense" },
+      { name: "💰 Side job", type: "Income" },
+      { name: "Gift", type: "Transfer" },
+    ];
+    const dry = (await c.post("/v1/imports/categories", { rows, dryRun: true }, token)).body.data;
+    expect(dry).toMatchObject({ dryRun: true, total: 4, imported: 2, duplicates: 1, created: ["expense:work", "income:Side job"] });
+    expect(dry.invalid.map((x: any) => x.row)).toEqual([4]);
+
+    expect((await c.post("/v1/imports/categories", { rows }, token)).body.data).toMatchObject({ imported: 2, duplicates: 1 });
+    const cats = (await c.get("/v1/categories", token)).body.data;
+    expect(cats.find((x: any) => x.name === "work")).toMatchObject({ kind: "expense", icon: "🌐" });
+    expect(cats.find((x: any) => x.name === "Side job")).toMatchObject({ kind: "income", icon: "💰" });
+    expect(cats.find((x: any) => x.name === "Food" && x.kind === "expense").icon).toBe("🍜"); // the default category takes the old emoji
+    expect((await c.post("/v1/imports/categories", { rows }, token)).body.data).toMatchObject({ imported: 0, duplicates: 3 });
+
+    const tx = (await c.post("/v1/imports/transactions", { rows: [{ date: "2025-08-01 10:00:00", account: "Cash", category: "🌐 Work", note: "", currency: "THB", amount: 10, type: "Expense" }] }, token)).body.data;
+    expect(tx.createdCategories).toEqual([]); // matched "work" despite the different case
+  });
+});

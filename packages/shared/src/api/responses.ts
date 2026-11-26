@@ -74,6 +74,12 @@ export const ImportReport = named("ImportReport", obj({
   dryRun: z.boolean(), total: z.number().int(), imported: z.number().int(), duplicates: z.number().int(), invalid: invalidRows,
   createdAccounts: z.array(z.string()), createdCategories: z.array(z.string()), approximateFxRows: z.number().int(),
 }));
+export const CategoryImportReport = named("CategoryImportReport", obj({
+  dryRun: z.boolean(), total: z.number().int(), imported: z.number().int(), duplicates: z.number().int(), invalid: invalidRows, created: z.array(z.string()),
+}));
+export const NoteImportReport = named("NoteImportReport", obj({
+  dryRun: z.boolean(), total: z.number().int(), imported: z.number().int(), duplicates: z.number().int(), invalid: invalidRows,
+}));
 export const InvestmentImportReport = named("InvestmentImportReport", obj({
   source: z.string(), dryRun: z.boolean(), total: z.number().int(), imported: z.number().int(), duplicates: z.number().int(), invalid: invalidRows,
   createdAssets: z.array(z.string()), positionErrors: z.array(obj({ symbol: z.string(), message: z.string() })),

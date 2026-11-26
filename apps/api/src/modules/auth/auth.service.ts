@@ -147,7 +147,14 @@ export class AuthService {
     if (!user) throw notFound("User");
     if (user.emailVerifiedAt) return;
     if (!(await this.coolDown("verify", user.id))) throw new AppError(429, "too_soon", "A verification email was just sent. Check your inbox (and spam) or try again in a minute.");
-    await this.sendVerification(user, false);
+    try {
+      await this.sendVerification(user, false);
+    } catch (e) {
+      // Nothing was sent, so don't make the user wait out the cool-down before trying again.
+      await this.kv.del(this.keys.mailCooldown("verify", user.id));
+      this.log.warn(`verification email failed: ${(e as Error).message}`);
+      throw new AppError(503, "email_unavailable", "We couldn't send the email right now. Please try again later.");
+    }
   }
 
   async verifyEmail(token: string) {

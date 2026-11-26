@@ -102,8 +102,9 @@ In `mgr_mobile/.env`: `EXPO_PUBLIC_API_URL=https://api.<your-ip>.sslip.io` (the 
 ## Known limits of the budget setup (and the upgrade path)
 
 - **Email is logged, not sent** (`MAIL_TRANSPORT=log`): verification and password-reset emails don't go out yet.
-  Sending needs a domain you own. With a domain (~$10/year): verify it in Amazon SES, request production access,
-  put SMTP settings in `/data/app.env`.
+  Without a domain: a free Brevo account with your own address verified as the sender — put `MAIL_TRANSPORT=brevo`,
+  `BREVO_API_KEY=…` and `MAIL_FROM=MoneyMgr <you@…>` in `/data/app.env` (or Gmail SMTP with an app password). With a
+  domain (~$10/year) mail is less likely to land in spam: verify it in Amazon SES or Brevo, then use those settings.
 - **One server**: an AWS hardware failure means downtime until the server is recreated (`terraform apply`) — the data
   disk, snapshots and S3 backups survive it. Upgrade path: RDS for Postgres, then ECS/Fargate behind a load balancer.
 - **sslip.io names** work but look temporary, and share Let's Encrypt limits with other sslip.io users (Caddy falls

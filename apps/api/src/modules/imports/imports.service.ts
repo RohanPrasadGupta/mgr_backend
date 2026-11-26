@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { convertMinor, importRowSchema, parseInTimeZone, toLocalDate, toMinor, type ImportRow } from "@moneymgr/shared";
+import { convertMinor, importCategoryRowSchema, importRowSchema, parseInTimeZone, toLocalDate, toMinor, type ImportRow } from "@moneymgr/shared";
 import { DB, type Db } from "../../db/db";
 import { accounts, categories, transactions, users } from "../../db/schema";
 import { notFound } from "../../common/errors";
@@ -19,6 +19,8 @@ export interface ImportReport {
   approximateFxRows: number;
 }
 
+export interface CategoryImportReport { dryRun: boolean; total: number; imported: number; duplicates: number; invalid: { row: number; reason: string }[]; created: string[] }
+
 const LEADING_EMOJI = /^((?:\p{Extended_Pictographic}|️|‍)+)\s*/u;
 
 /** "🍜 Food" → { icon: "🍜", name: "Food" }; names without an emoji pass through. */
@@ -36,6 +38,43 @@ const guessAccountType = (name: string) =>
 @Injectable()
 export class ImportsService {
   constructor(@Inject(DB) private readonly db: Db, @Inject(FxService) private readonly fx: FxService) {}
+
+  /**
+   * Categories on their own (before their transactions, so each keeps its emoji icon). Matched like the transaction
+   * importer matches them — same kind, name ignoring case and the emoji — so neither import ever creates a second copy.
+   * An existing category without an icon (e.g. the defaults every account starts with) takes the imported emoji.
+   */
+  async importCategories(userId: string, rawRows: unknown[], dryRun: boolean): Promise<CategoryImportReport> {
+    const report: CategoryImportReport = { dryRun, total: rawRows.length, imported: 0, duplicates: 0, invalid: [], created: [] };
+    const existing = await this.db.select({ id: categories.id, kind: categories.kind, name: categories.name, icon: categories.icon }).from(categories).where(and(eq(categories.userId, userId), isNull(categories.deletedAt)));
+    const byKey = new Map(existing.map((c) => [`${c.kind}|${c.name.toLowerCase()}`, c]));
+    const seen = new Set(byKey.keys());
+    const values: (typeof categories.$inferInsert)[] = [];
+    const icons: { id: string; icon: string }[] = []; // existing categories without an icon take the imported one
+    rawRows.forEach((raw, i) => {
+      const p = importCategoryRowSchema.safeParse(raw);
+      if (!p.success) return void report.invalid.push({ row: i + 1, reason: p.error.issues.map((x) => `${x.path.join(".") || "row"}: ${x.message}`).join("; ") });
+      const kind: Kind = p.data.type === "Income" ? "income" : "expense";
+      const { icon, name } = splitEmoji(p.data.name);
+      const key = `${kind}|${name.toLowerCase()}`;
+      if (seen.has(key)) {
+        const hit = byKey.get(key);
+        if (hit && !hit.icon && icon) { icons.push({ id: hit.id, icon }); hit.icon = icon; }
+        return void report.duplicates++;
+      }
+      seen.add(key);
+      values.push({ userId, name: name.slice(0, 60), kind, icon });
+      report.created.push(`${kind}:${name}`);
+    });
+    if (!dryRun && (values.length || icons.length)) {
+      await this.db.transaction(async (tx) => {
+        if (values.length) await tx.insert(categories).values(values);
+        for (const { id, icon } of icons) await tx.update(categories).set({ icon }).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+      });
+    }
+    report.imported = values.length;
+    return report;
+  }
 
   async importTransactions(userId: string, rawRows: unknown[], dryRun: boolean): Promise<ImportReport> {
     const [user] = await this.db.select().from(users).where(eq(users.id, userId));

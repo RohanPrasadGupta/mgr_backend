@@ -1,5 +1,6 @@
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { KEYS, KV, type Keys, type Kv } from "../src/infra/kv";
 import { MAILER, type Mailer } from "../src/infra/mailer";
 import { client, makeApp, registerUser, resetDb } from "./helpers";
 
@@ -106,6 +107,25 @@ describe("email verification", () => {
     const n = mail.sent.length;
     expect((await c.post("/v1/me/resend-verification", {}, u.token)).status).toBe(202);
     expect(mail.sent.length).toBe(n);
+  });
+});
+
+describe("when the mail server is down", () => {
+  it("resend answers 503 email_unavailable (not a 500) and can be retried at once", async () => {
+    const u = await registerUser(c, "down@example.com");
+    const send = mail.send.bind(mail);
+    let fail = true;
+    mail.send = async (m) => { if (fail) throw new Error("Connection timeout"); return send(m); };
+    try {
+      await app.get<Kv>(KV).del(app.get<Keys>(KEYS).mailCooldown("verify", u.user.id)); // skip the sign-up cool-down
+      const res = await c.post("/v1/me/resend-verification", {}, u.token);
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe("email_unavailable");
+      fail = false;
+      expect((await c.post("/v1/me/resend-verification", {}, u.token)).status).toBe(202); // not "too_soon"
+    } finally {
+      mail.send = send;
+    }
   });
 });
 
