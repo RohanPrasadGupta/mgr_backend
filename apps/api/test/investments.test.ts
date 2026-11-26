@@ -12,6 +12,25 @@ const mkAsset = async (token: string, body: object = {}) =>
   (await c.post("/v1/investments/assets", { symbol: "acme", name: "Acme Corporation", class: "stock", currency: "THB", ...body }, token)).body.data;
 
 describe("assets + trades", () => {
+  it("crypto recorded by amount only: amount + fee per entry, units optional; tracking switchable only while empty", async () => {
+    const { token } = await registerUser(c);
+    const btc = await mkAsset(token, { symbol: "BTC", name: "Bitcoin", class: "crypto" }); // units by default
+    expect((await c.patch(`/v1/investments/assets/${btc.id}`, { tracking: "value" }, token)).body.data.tracking).toBe("value");
+    const add = (b: object) => c.post("/v1/investments/trades", { assetId: btc.id, ...b }, token);
+    const withUnits = (await add({ type: "contribution", amountMinor: 80_000, feeMinor: 2_000, quantity: 0.004, tradedOn: "2024-12-02" })).body.data;
+    expect(withUnits).toMatchObject({ quantity: 0.004, priceMinor: 20_000_000 }); // implied price per unit
+    expect((await add({ type: "contribution", amountMinor: 50_000, feeMinor: 1_818, tradedOn: "2025-01-01" })).body.data).toMatchObject({ quantity: null, priceMinor: null });
+    const h = (await c.get(`/v1/investments/assets/${btc.id}`, token)).body.data;
+    expect(h).toMatchObject({ contributedMinor: 130_000, remainingCostMinor: 133_818, quantity: 0.004 });
+    // clearing the units of an entry
+    expect((await c.patch(`/v1/investments/trades/${withUnits.id}`, { quantity: null }, token)).body.data).toMatchObject({ quantity: null, amountMinor: 80_000 });
+    // once something is recorded, the way it's recorded is fixed
+    const locked = await c.patch(`/v1/investments/assets/${btc.id}`, { tracking: "units" }, token);
+    expect(locked.status).toBe(409);
+    expect(locked.body.error.code).toBe("asset_has_trades");
+  });
+
+
   it("relabels an asset's currency (amounts kept; minor units follow the decimals) and adds it to the user's list", async () => {
     const { token } = await registerUser(c);
     const a = await mkAsset(token); // THB

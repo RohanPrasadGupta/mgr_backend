@@ -31,6 +31,10 @@ describe("position engine (units)", () => {
     const none = [t("buy", "2025-01-01", 10, 1000, { includeInAvg: false }), t("buy", "2025-02-01", 10, 3000, { includeInAvg: false })];
     expect(computePosition(none, "units", "wavg").avgCostMinor).toBe(200);
   });
+  it("amount-only assets keep the units held when entries note them", () => {
+    const p = computePosition([t("contribution", "2025-01-01", 0.5, 80_000, { feeMinor: 2000 }), t("contribution", "2025-02-01", null, 50_000), t("withdrawal", "2025-03-01", 0.2, 40_000)], "value", "wavg");
+    expect(p).toMatchObject({ quantity: 0.3, contributedMinor: 130_000, withdrawnMinor: 40_000, remainingCostMinor: 92_000 });
+  });
   it("capitalises buy fees into cost and nets sell fees from proceeds", () => {
     const p = computePosition([t("buy", "2025-01-01", 10, 1000, { feeMinor: 10 }), t("sell", "2025-02-01", 10, 1200, { feeMinor: 20 })], "units", "wavg");
     expect(p).toMatchObject({ quantity: 0, remainingCostMinor: 0, realisedPnlMinor: 1180 - 1010, feesMinor: 30 });

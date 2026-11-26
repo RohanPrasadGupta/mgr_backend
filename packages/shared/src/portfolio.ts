@@ -107,11 +107,13 @@ export function computePosition(input: EngineTrade[], tracking: Tracking, method
       case "contribution": {
         const c = t.amountMinor + t.feeMinor;
         p.contributedMinor += t.amountMinor; cost += c;
+        qty += q; // amount-only assets may still note the units bought; when they do, the units held are kept too
         p.cashflows.push({ date: t.tradedOn, amountMinor: -c });
         break;
       }
       case "withdrawal":
         p.withdrawnMinor += t.amountMinor; cost -= t.amountMinor;
+        qty -= q;
         p.cashflows.push({ date: t.tradedOn, amountMinor: t.amountMinor - t.feeMinor });
         break;
     }

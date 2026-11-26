@@ -52,6 +52,11 @@ export class InvestmentsService {
   async updateAsset(userId: string, id: string, input: UpdateAssetInput) {
     const asset = await this.getAsset(userId, id);
     const { currency, ...rest } = input;
+    if (rest.tracking && rest.tracking !== asset.tracking) {
+      // units ↔ amount-only changes what every entry means, so it's only allowed before anything is recorded
+      const [t] = await this.db.select({ id: trades.id }).from(trades).where(and(eq(trades.assetId, id), isNull(trades.deletedAt))).limit(1);
+      if (t) throw conflict("asset_has_trades", "Change how this asset is recorded only while it has no entries");
+    }
     if (currency && currency !== asset.currency) {
       const [cur] = await this.db.select().from(currencies).where(eq(currencies.code, currency));
       if (!cur) throw unprocessable("unsupported_currency", `Currency ${currency} is not supported`);
@@ -97,6 +102,10 @@ export class InvestmentsService {
       const amount = t.amountMinor ?? r0(q * t.priceMinor!);
       return { quantity: q, priceMinor: t.priceMinor ?? amount / q, amountMinor: amount };
     }
+    // amount-only entries (contribution / withdrawal) may note how many units they were; the price is then implied
+    if ((t.type === "contribution" || t.type === "withdrawal") && t.quantity && t.quantity > 0) {
+      return { quantity: t.quantity, priceMinor: t.amountMinor! / t.quantity, amountMinor: t.amountMinor! };
+    }
     return { quantity: null, priceMinor: null, amountMinor: t.amountMinor! };
   }
 
@@ -129,7 +138,7 @@ export class InvestmentsService {
     const asset = await this.getAsset(userId, cur.assetId);
     const type = input.type ?? cur.type;
     const priced = type === "buy" || type === "sell";
-    const merged = { type, quantity: input.quantity ?? num(cur.quantity), priceMinor: input.priceMinor ?? num(cur.priceMinor), amountMinor: input.amountMinor ?? cur.amountMinor };
+    const merged = { type, quantity: input.quantity !== undefined ? input.quantity : num(cur.quantity), priceMinor: input.priceMinor ?? num(cur.priceMinor), amountMinor: input.amountMinor ?? cur.amountMinor };
     // changing quantity/price (or turning another kind into a buy/sell) without an explicit amount re-derives the amount
     const wasPriced = cur.type === "buy" || cur.type === "sell";
     if (priced && input.amountMinor === undefined && (input.quantity !== undefined || input.priceMinor !== undefined || !wasPriced)) merged.amountMinor = undefined as unknown as number;

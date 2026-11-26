@@ -19,6 +19,8 @@ export const updateAssetSchema = z
     name: z.string().trim().min(1).max(100),
     costMethod: z.enum(["wavg", "fifo", "manual"]),
     archived: z.boolean(),
+    /** How entries are recorded (units × price, or amount only). Can only change while the asset has no entries. */
+    tracking: z.enum(["units", "value"]),
     /** Relabels the asset and its trades/prices (amounts are not converted; recorded in the wrong currency → fix the label). */
     currency: z.string().length(3).transform((s) => s.toUpperCase()),
   })
@@ -53,7 +55,8 @@ export const updateTradeSchema = z
   .object({
     /** Change the kind of entry (e.g. a buy recorded as a sell); the API checks the fields the new kind needs. */
     type: z.enum(tradeTypes),
-    quantity: z.number().positive().max(1e12),
+    /** null clears it (an amount-only entry that no longer notes its units) */
+    quantity: z.number().positive().max(1e12).nullable(),
     priceMinor: z.number().positive().max(1e15),
     amountMinor: money0,
     feeMinor: money0,
