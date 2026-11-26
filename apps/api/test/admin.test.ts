@@ -184,3 +184,97 @@ describe("admin views and actions", () => {
     expect(h.checks[0].ok).toBe(true);
   });
 });
+
+describe("admin accounts (owners)", () => {
+  /** Sign in with any password; returns the access token (and the authenticator secret for later sign-ins). */
+  async function signInAs(email: string, password: string, secret?: string) {
+    const step = (await c.post("/v1/admin/auth/login", { email, password })).body.data;
+    const s = secret ?? step.secret;
+    const res = await c.post("/v1/admin/auth/mfa", { mfaToken: step.mfaToken, code: totpCode(s, now() + (signIns++ % 2 === 0 ? 0 : 1)) });
+    expect(res.status).toBe(200);
+    return { token: res.body.data.accessToken as string, secret: s, admin: res.body.data.admin };
+  }
+  const mkOwner = async (email = "owner@example.com") => { await db.insert(admins).values({ email, name: "Owner", role: "owner", passwordHash: await hash(PW) }); return signInAs(email, PW); };
+
+  it("an owner adds an admin with a one-time password, which must be replaced before anything else works", async () => {
+    const owner = await mkOwner();
+    expect(owner.admin).toMatchObject({ role: "owner", mustChangePassword: false });
+    const created = await c.post("/v1/admin/admins", { email: "New@Example.com", name: "New Admin", role: "admin", reason: "Hired for support" }, owner.token);
+    expect(created.status).toBe(201);
+    const { admin, temporaryPassword } = created.body.data;
+    expect(admin).toMatchObject({ email: "new@example.com", role: "admin", mustChangePassword: true, twoFactorEnabled: false });
+    expect(temporaryPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    const [row] = await db.select().from(admins).where(eq(admins.email, "new@example.com"));
+    expect(row!.passwordHash).not.toContain(temporaryPassword); // only the hash is stored
+    expect((await c.post("/v1/admin/admins", { email: "new@example.com", name: "Again", reason: "dup" }, owner.token)).status).toBe(409);
+
+    // the new admin signs in (enrols 2FA) but is held at "change your password"
+    const fresh = await signInAs("new@example.com", temporaryPassword);
+    expect(fresh.admin.mustChangePassword).toBe(true);
+    expect((await c.get("/v1/admin/me", fresh.token)).status).toBe(200);
+    const blocked = await c.get("/v1/admin/users", fresh.token);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error.code).toBe("password_change_required");
+    expect((await c.post("/v1/admin/me/password", { currentPassword: "wrong", newPassword: "a brand new password" }, fresh.token)).status).toBe(403);
+    expect((await c.post("/v1/admin/me/password", { currentPassword: temporaryPassword, newPassword: "short" }, fresh.token)).status).toBe(400);
+    expect((await c.post("/v1/admin/me/password", { currentPassword: temporaryPassword, newPassword: "a brand new password" }, fresh.token)).status).toBe(204);
+    expect((await c.get("/v1/admin/users", fresh.token)).status).toBe(200);
+    expect((await c.get("/v1/admin/me", fresh.token)).body.data.mustChangePassword).toBe(false);
+
+    // a regular admin can't see or manage admins
+    const denied = await c.get("/v1/admin/admins", fresh.token);
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe("owner_only");
+    expect((await c.post("/v1/admin/admins", { email: "x@example.com", name: "X", reason: "nope" }, fresh.token)).status).toBe(403);
+
+    const actions = (await db.select().from(auditLog)).map((r) => r.action);
+    expect(actions).toEqual(expect.arrayContaining(["admin.created", "admin.password_changed"]));
+  });
+
+  it("disables, re-enables, resets 2FA and passwords, and changes roles — never on yourself", async () => {
+    const owner = await mkOwner();
+    const { admin, temporaryPassword } = (await c.post("/v1/admin/admins", { email: "b@example.com", name: "B", reason: "team" }, owner.token)).body.data;
+    const b = await signInAs("b@example.com", temporaryPassword);
+
+    const off = await c.post(`/v1/admin/admins/${admin.id}/disable`, reason, owner.token);
+    expect(off.body.data.disabledAt).not.toBeNull();
+    expect((await c.get("/v1/admin/me", b.token)).status).toBe(401); // live token stops at once
+    expect((await c.post("/v1/admin/auth/login", { email: "b@example.com", password: temporaryPassword })).status).toBe(401);
+    expect((await c.post(`/v1/admin/admins/${admin.id}/enable`, reason, owner.token)).body.data.disabledAt).toBeNull();
+
+    expect((await c.post(`/v1/admin/admins/${admin.id}/reset-2fa`, reason, owner.token)).body.data.twoFactorEnabled).toBe(false);
+    expect((await c.post("/v1/admin/auth/login", { email: "b@example.com", password: temporaryPassword })).body.data.step).toBe("setup");
+
+    const reset = (await c.post(`/v1/admin/admins/${admin.id}/reset-password`, reason, owner.token)).body.data;
+    expect(reset.temporaryPassword).not.toBe(temporaryPassword);
+    expect(reset.admin.mustChangePassword).toBe(true);
+    expect((await c.post("/v1/admin/auth/login", { email: "b@example.com", password: temporaryPassword })).status).toBe(401);
+    expect((await c.post("/v1/admin/auth/login", { email: "b@example.com", password: reset.temporaryPassword })).status).toBe(200);
+
+    // yourself: refused
+    for (const path of ["disable", "reset-2fa", "reset-password"]) {
+      const r = await c.post(`/v1/admin/admins/${owner.admin.id}/${path}`, reason, owner.token);
+      expect(r.status).toBe(422);
+      expect(r.body.error.code).toBe("own_account");
+    }
+    const self = await c.post(`/v1/admin/admins/${owner.admin.id}/role`, { role: "admin", reason: "step down" }, owner.token);
+    expect(self.body.error.code).toBe("own_account"); // an owner can't demote themself (so the last owner can't vanish)
+    expect((await c.post(`/v1/admin/admins/${admin.id}/role`, { role: "owner", reason: "co-owner" }, owner.token)).body.data.role).toBe("owner");
+    expect((await c.post(`/v1/admin/admins/${admin.id}/role`, { role: "admin", reason: "back to admin" }, owner.token)).body.data.role).toBe("admin");
+
+    const list = (await c.get("/v1/admin/admins", owner.token)).body.data;
+    expect(list.map((a: any) => a.email)).toEqual(["owner@example.com", "b@example.com"]);
+    const actions = (await db.select().from(auditLog)).map((r) => r.action);
+    expect(actions).toEqual(expect.arrayContaining(["admin.disabled", "admin.enabled", "admin.2fa_reset", "admin.password_reset", "admin.role_changed"]));
+  });
+
+  it("a demoted owner loses the Admins page on their live session", async () => {
+    const owner = await mkOwner();
+    const { temporaryPassword } = (await c.post("/v1/admin/admins", { email: "c@example.com", name: "C", role: "owner", reason: "co-owner" }, owner.token)).body.data;
+    const cOwner = await signInAs("c@example.com", temporaryPassword);
+    await c.post("/v1/admin/me/password", { currentPassword: temporaryPassword, newPassword: "c's new long password" }, cOwner.token);
+    expect((await c.post(`/v1/admin/admins/${owner.admin.id}/role`, { role: "admin", reason: "handover" }, cOwner.token)).status).toBe(200);
+    expect((await c.get("/v1/admin/admins", owner.token)).status).toBe(403);
+    expect((await c.get("/v1/admin/users", owner.token)).status).toBe(200); // support tools stay
+  });
+});

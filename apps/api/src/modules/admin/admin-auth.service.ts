@@ -17,7 +17,7 @@ const MFA_TOKEN_SEC = 5 * 60;
 // A dummy hash so a login for an unknown email costs the same as one for a real admin (no timing oracle).
 let dummyHash: Promise<string> | null = null;
 
-export const adminProfile = (a: typeof admins.$inferSelect) => ({ id: a.id, email: a.email, name: a.name, lastLoginAt: a.lastLoginAt?.toISOString() ?? null });
+export const adminProfile = (a: typeof admins.$inferSelect) => ({ id: a.id, email: a.email, name: a.name, role: a.role, mustChangePassword: a.mustChangePassword, lastLoginAt: a.lastLoginAt?.toISOString() ?? null });
 
 @Injectable()
 export class AdminAuthService {

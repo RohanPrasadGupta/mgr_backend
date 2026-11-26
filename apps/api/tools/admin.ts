@@ -1,7 +1,8 @@
 /**
  * Admin accounts are created and managed from the command line only (there is no admin sign-up page).
  *
- *   pnpm admin create --email you@example.com --name "Your Name"     # asks for a password (or reads ADMIN_PASSWORD)
+ *   pnpm admin create --email you@example.com --name "Your Name"     # asks for a password (or reads ADMIN_PASSWORD); owner by default
+ *   pnpm admin create --email b@example.com --role admin              # a regular admin (support tools, no Admins page)
  *   pnpm admin reset-2fa --email you@example.com                     # next sign-in enrols a new authenticator
  *   pnpm admin disable --email you@example.com / enable --email ...   # disabling also ends every admin session
  *   pnpm admin list
@@ -32,7 +33,7 @@ async function main() {
   const audit = (action: string) => db.insert(auditLog).values({ adminEmail: email ?? null, action, meta: { via: "cli" } });
   try {
     if (cmd === "list") {
-      for (const a of await db.select().from(admins)) console.log(`${a.email}\t${a.name}\t2FA: ${a.totpEnabledAt ? "on" : "not enrolled"}\t${a.disabledAt ? "DISABLED" : "active"}`);
+      for (const a of await db.select().from(admins)) console.log(`${a.email}\t${a.name}\t${a.role}\t2FA: ${a.totpEnabledAt ? "on" : "not enrolled"}\t${a.disabledAt ? "DISABLED" : "active"}`);
       return;
     }
     if (!email) throw new Error("--email is required");
@@ -40,7 +41,9 @@ async function main() {
       const name = arg("name") ?? email.split("@")[0]!;
       const password = process.env.ADMIN_PASSWORD ?? (await askHidden("Password (min 12 characters): "));
       if (password.length < 12) throw new Error("Use at least 12 characters for an admin password");
-      await db.insert(admins).values({ email, name, passwordHash: await hash(password) });
+      const role = (arg("role") ?? "owner") as "owner" | "admin";
+      if (role !== "owner" && role !== "admin") throw new Error("--role must be owner or admin");
+      await db.insert(admins).values({ email, name, role, passwordHash: await hash(password) });
       await audit("admin.created");
       console.log(`Created admin ${email}. Sign in at the admin site; you'll be asked to set up an authenticator app.`);
     } else if (cmd === "reset-2fa") {

@@ -32,7 +32,7 @@ Layout: `apps/api` (Nest app, `src/modules/*`, `drizzle/` migrations, `test/`), 
 | Recurring | `GET/POST /recurring`, `GET/PATCH/DELETE /recurring/:id`, `POST /recurring/run-due` — posts due occurrences; also runs automatically every 15 min |
 | Investments | `GET/POST /investments/assets`, `GET/PATCH/DELETE /investments/assets/:id` (holding: qty, avg cost, P/L, XIRR), `GET/POST /investments/assets/:id/prices`, `GET/POST /investments/trades`, `PATCH/DELETE /investments/trades/:id`, `GET /investments/portfolio`, `POST /calc/sip`, `POST /imports/investments` (v1 Mongo docs) |
 | Insights | `GET /insights/summary`, `/insights/by-category`, `/insights/trend?year=` |
-| Admin | `POST /admin/auth/{login,mfa,refresh,logout}` (password → TOTP 2FA), `GET /admin/{me,stats,health,audit}`, `GET /admin/users`, `GET /admin/users/:id`, `POST /admin/users/:id/{suspend,reactivate,sign-out,resend-verification,mark-verified}` (reason required), `DELETE /admin/users/:id` (reason + `confirmEmail`), `POST/DELETE /admin/users/:id/support` + `GET /admin/users/:id/data/:kind` (time-limited, audited support view). Used by `../mgr_admin`. |
+| Admin | `GET /admin/me`, `POST /admin/me/password`; owners: `GET/POST /admin/admins`, `POST /admin/admins/:id/{disable,enable,reset-2fa,reset-password,role}`; `POST /admin/auth/{login,mfa,refresh,logout}` (password → TOTP 2FA), `GET /admin/{me,stats,health,audit}`, `GET /admin/users`, `GET /admin/users/:id`, `POST /admin/users/:id/{suspend,reactivate,sign-out,resend-verification,mark-verified}` (reason required), `DELETE /admin/users/:id` (reason + `confirmEmail`), `POST/DELETE /admin/users/:id/support` + `GET /admin/users/:id/data/:kind` (time-limited, audited support view). Used by `../mgr_admin`. |
 
 Conventions: money = integer minor units + currency; each transaction stores `fxRate` + `baseAmountMinor`; `occurredOn` is the calendar date in the user's timezone; every query is scoped by `userId`.
 
@@ -60,6 +60,12 @@ pnpm --filter @moneymgr/api admin reset-2fa --email you@example.com             
 pnpm --filter @moneymgr/api admin disable --email you@example.com                     # or enable
 ```
 Set `ADMIN_SECRET` (≥32 chars, different from `JWT_SECRET`; required in production). The dashboard is `../mgr_admin`.
+
+Admins created from the command line are **owners** (`--role admin` for a regular one). After that, owners manage
+admins on the site's **Admins** page: add (the API returns a 16-character one-time password, shown once; the new
+admin must replace it at first sign-in before anything else works), disable/enable, reset password, reset
+authenticator, make owner/regular. Every change needs a reason and is audited; nobody can act on their own account
+there, and at least one active owner always remains. Regular admins keep the support tools but don't see the page.
 
 ## Import your v1 spreadsheet
 ```bash

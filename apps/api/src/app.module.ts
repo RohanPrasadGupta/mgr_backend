@@ -44,6 +44,7 @@ import { DiskStorage, STORAGE } from "./infra/storage";
 import type Redis from "ioredis";
 import { AdminAuthController, AdminController } from "./modules/admin/admin.controller";
 import { AdminAuthService } from "./modules/admin/admin-auth.service";
+import { AdminAccountsService } from "./modules/admin/admin-accounts.service";
 import { AdminGuard } from "./modules/admin/admin.guard";
 import { AdminService } from "./modules/admin/admin.service";
 import { AuditService } from "./modules/admin/audit.service";
@@ -63,7 +64,7 @@ import { AuditService } from "./modules/admin/audit.service";
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     AuthService, AccountsService, CategoriesService, TransactionsService, InsightsService, FxService, ImportsService, BudgetsService, RecurringService, InvestmentsService, InvestmentImportsService, NoteImportsService, AccountDeletionService,
     TagsService, AttachmentsService, GoalsService, DebtsService, NotesService, ReportsService,
-    AuditService, AdminAuthService, AdminService, AdminGuard,
+    AuditService, AdminAuthService, AdminService, AdminGuard, AdminAccountsService,
   ],
   controllers: [HealthController, OpenApiController, AuthController, UsersController, CurrenciesController, AccountsController, CategoriesController, TransactionsController, InsightsController, FxController, ImportsController, BudgetsController, RecurringController, InvestmentsController,
     TagsController, AttachmentsController, GoalsController, DebtsController, NotesController, ReportsController,

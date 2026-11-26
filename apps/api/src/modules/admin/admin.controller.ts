@@ -2,18 +2,20 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, 
 import type { FastifyRequest } from "fastify";
 import { RouteConfig } from "@nestjs/platform-fastify";
 import {
-  adminAuditQuerySchema, adminDeleteUserSchema, adminLoginSchema, adminMfaSchema, adminReasonSchema, adminRefreshSchema, adminUsersQuerySchema,
-  type AdminAuditQuery, type AdminLoginInput, type AdminMfaInput, type AdminUsersQuery,
+  adminAuditQuerySchema, adminChangePasswordSchema, adminCreateSchema, adminDeleteUserSchema, adminLoginSchema, adminMfaSchema, adminReasonSchema, adminRefreshSchema,
+  adminRoleSchema, adminUsersQuerySchema,
+  type AdminAuditQuery, type AdminChangePasswordInput, type AdminCreateInput, type AdminLoginInput, type AdminMfaInput, type AdminRoleInput, type AdminUsersQuery,
 } from "@moneymgr/shared";
 import { ZodPipe } from "../../common/zod.pipe";
 import { loadConfig } from "../../config";
 import { Public } from "../auth/auth.guard";
-import { Admin, AdminGuard } from "./admin.guard";
+import { Admin, AdminGuard, AllowPendingPassword, OwnerOnly, type AdminActor } from "./admin.guard";
+import { AdminAccountsService } from "./admin-accounts.service";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminService } from "./admin.service";
-import { AuditService, type AuditActor } from "./audit.service";
+import { AuditService } from "./audit.service";
 
-type Actor = AuditActor & { adminId: string; adminEmail: string };
+type Actor = AdminActor;
 // sign-in endpoints get the same strict per-IP limit as customer auth
 const strict = () => RouteConfig({ rateLimit: { max: loadConfig().AUTH_RATE_LIMIT_PER_MIN, timeWindow: "1 minute" } });
 
@@ -35,8 +37,19 @@ export class AdminController {
     @Inject(AdminAuthService) private readonly auth: AdminAuthService,
     @Inject(AdminService) private readonly svc: AdminService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(AdminAccountsService) private readonly accounts: AdminAccountsService,
   ) {}
-  @Get("me") async me(@Admin() a: Actor) { return { data: await this.auth.me(a.adminId) }; }
+  @Get("me") @AllowPendingPassword() async me(@Admin() a: Actor) { return { data: await this.auth.me(a.adminId) }; }
+  @Post("me/password") @HttpCode(204) @AllowPendingPassword() async changePassword(@Admin() a: Actor, @Body(new ZodPipe(adminChangePasswordSchema)) b: AdminChangePasswordInput) { await this.accounts.changeOwnPassword(a, b.currentPassword, b.newPassword); }
+
+  // ── admin accounts (owners only) ──
+  @Get("admins") @OwnerOnly() async admins() { return { data: await this.accounts.list() }; }
+  @Post("admins") @HttpCode(201) @OwnerOnly() async createAdmin(@Admin() a: Actor, @Body(new ZodPipe(adminCreateSchema)) b: AdminCreateInput) { return { data: await this.accounts.create(a, b) }; }
+  @Post("admins/:id/disable") @HttpCode(200) @OwnerOnly() async disableAdmin(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(adminReasonSchema)) b: { reason: string }) { return { data: await this.accounts.disable(a, id, b.reason) }; }
+  @Post("admins/:id/enable") @HttpCode(200) @OwnerOnly() async enableAdmin(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(adminReasonSchema)) b: { reason: string }) { return { data: await this.accounts.enable(a, id, b.reason) }; }
+  @Post("admins/:id/reset-2fa") @HttpCode(200) @OwnerOnly() async resetAdmin2fa(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(adminReasonSchema)) b: { reason: string }) { return { data: await this.accounts.resetTwoFactor(a, id, b.reason) }; }
+  @Post("admins/:id/reset-password") @HttpCode(200) @OwnerOnly() async resetAdminPassword(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(adminReasonSchema)) b: { reason: string }) { return { data: await this.accounts.resetPassword(a, id, b.reason) }; }
+  @Post("admins/:id/role") @HttpCode(200) @OwnerOnly() async setAdminRole(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(adminRoleSchema)) b: AdminRoleInput) { return { data: await this.accounts.setRole(a, id, b.role, b.reason) }; }
   @Get("stats") async stats() { return { data: await this.svc.stats() }; }
   @Get("users") async users(@Query(new ZodPipe(adminUsersQuerySchema)) q: AdminUsersQuery) { return { data: await this.svc.listUsers(q) }; }
   @Get("users/:id") async user(@Admin() a: Actor, @Param("id", ParseUUIDPipe) id: string) { return { data: await this.svc.getUser(a, id) }; }
