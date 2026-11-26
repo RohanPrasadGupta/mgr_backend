@@ -87,7 +87,7 @@ export const InvestmentImportReport = named("InvestmentImportReport", obj({
 
 export const Asset = named("Asset", obj({
   id: uuid, userId: uuid, symbol: z.string(), name: z.string(), class: z.enum(assetClasses), currency: z.string(), tracking: z.enum(["units", "value"]),
-  costMethod: z.enum(["wavg", "fifo", "manual"]), archived: z.boolean(), createdAt: dateTime, deletedAt: dateTime.nullable(),
+  costMethod: z.enum(["wavg", "fifo", "manual"]), convertCurrency: z.string().nullable(), convertRate: z.number().nullable(), archived: z.boolean(), createdAt: dateTime, deletedAt: dateTime.nullable(),
 }));
 export const Holding = named("Holding", obj({
   asset: Asset, quantity: z.number(), avgCostMinor: z.number().nullable(), remainingCostMinor: money, totalBoughtMinor: money, totalSoldMinor: money, contributedMinor: money, withdrawnMinor: money,
@@ -152,7 +152,7 @@ export const Note = named("Note", obj({ id: uuid, userId: uuid, title: z.string(
 
 const reportCat = obj({ categoryId: uuid.nullable(), name: z.string(), totalMinor: money, pct: z.number(), previousMinor: money, changePct: z.number().nullable() });
 export const Report = named("Report", obj({
-  period: z.enum(["month", "year"]), label: z.string(), from: date, to: date, previousFrom: date, previousTo: date, baseCurrency: z.string(),
+  period: z.enum(["month", "year", "all"]), label: z.string(), from: date, to: date, previousFrom: date, previousTo: date, baseCurrency: z.string(),
   incomeMinor: money, expenseMinor: money, netMinor: money, savingsRatePct: z.number().nullable(), transactionCount: z.number().int(),
   previous: obj({ incomeMinor: money, expenseMinor: money, netMinor: money }),
   /** Daily average spending across the period's days that have already happened. */

@@ -60,10 +60,13 @@ export const importNotesSchema = z.object({ rows: z.array(z.unknown()).min(1).ma
 
 // ── reports ──
 export const reportQuerySchema = z.object({
-  period: z.enum(["month", "year"]),
-  year: z.coerce.number().int().min(1970).max(2200),
+  /** "all" = everything from the first transaction up to today. */
+  period: z.enum(["month", "year", "all"]),
+  year: z.coerce.number().int().min(1970).max(2200).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
-}).refine((q) => q.period === "year" || q.month !== undefined, { message: "month is required for a monthly report", path: ["month"] });
+})
+  .refine((q) => q.period === "all" || q.year !== undefined, { message: "year is required", path: ["year"] })
+  .refine((q) => q.period !== "month" || q.month !== undefined, { message: "month is required for a monthly report", path: ["month"] });
 
 export type CreateTagInput = z.infer<typeof createTagSchema>;
 export type UpdateTagInput = z.infer<typeof updateTagSchema>;

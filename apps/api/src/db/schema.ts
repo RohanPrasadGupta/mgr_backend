@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  bigint, boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid,
+  bigint, boolean, check, date, doublePrecision, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -201,6 +201,12 @@ export const assets = pgTable(
     currency: text("currency").notNull().references(() => currencies.code),
     tracking: tracking("tracking").notNull(),
     costMethod: costMethod("cost_method").notNull().default("wavg"),
+    /**
+     * Optional user-entered conversion: amounts stay in `currency`, but totals count this asset in `convertCurrency`
+     * at `convertRate` (1 unit of `currency` = convertRate units of `convertCurrency`) instead of the daily FX rate.
+     */
+    convertCurrency: text("convert_currency").references(() => currencies.code),
+    convertRate: doublePrecision("convert_rate"),
     archived: boolean("archived").notNull().default(false),
     createdAt: ts("created_at").notNull().defaultNow(),
     deletedAt: ts("deleted_at"),

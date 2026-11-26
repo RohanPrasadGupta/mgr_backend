@@ -21,6 +21,9 @@ export const updateAssetSchema = z
     archived: z.boolean(),
     /** How entries are recorded (units × price, or amount only). Can only change while the asset has no entries. */
     tracking: z.enum(["units", "value"]),
+    /** Show/total this asset in another currency at a rate you choose (1 asset currency = rate × convertCurrency); null removes it. */
+    convertCurrency: z.string().length(3).transform((s) => s.toUpperCase()).nullable(),
+    convertRate: z.number().positive().max(1e9).nullable(),
     /** Relabels the asset and its trades/prices (amounts are not converted; recorded in the wrong currency → fix the label). */
     currency: z.string().length(3).transform((s) => s.toUpperCase()),
   })

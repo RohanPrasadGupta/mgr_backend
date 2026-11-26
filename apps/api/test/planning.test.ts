@@ -240,4 +240,16 @@ describe("reports", () => {
     expect(r.series[1].to).toBe("2025-02-28");
     expect((await c.get("/v1/reports?period=month&year=2025", t)).status).toBe(400);
   });
+
+  it("all-time report: from the first transaction to today, one bar per year once history is longer than two years", async () => {
+    await tx({ amountMinor: 1_000, occurredAt: "2021-03-10T05:00:00Z" });
+    await tx({ amountMinor: 2_000, occurredAt: "2024-08-01T05:00:00Z" });
+    const r = (await c.get("/v1/reports?period=all", t)).body.data;
+    expect(r).toMatchObject({ period: "all", label: "All time", from: "2021-03-10" });
+    expect(r.expenseMinor).toBeGreaterThanOrEqual(3_000);
+    expect(r.previous).toEqual({ incomeMinor: 0, expenseMinor: 0, netMinor: 0 }); // nothing before "all time"
+    expect(r.series[0]).toMatchObject({ label: "2021", from: "2021-01-01", expenseMinor: 1_000 });
+    expect(r.series.find((s: any) => s.label === "2024").expenseMinor).toBe(2_000);
+    expect((await c.get("/v1/reports?period=year", t)).status).toBe(400); // year still required for a yearly report
+  });
 });

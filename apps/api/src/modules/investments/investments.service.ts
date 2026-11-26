@@ -52,6 +52,16 @@ export class InvestmentsService {
   async updateAsset(userId: string, id: string, input: UpdateAssetInput) {
     const asset = await this.getAsset(userId, id);
     const { currency, ...rest } = input;
+    if (rest.convertCurrency !== undefined || rest.convertRate !== undefined) {
+      const cc = rest.convertCurrency !== undefined ? rest.convertCurrency : asset.convertCurrency;
+      const cr = rest.convertRate !== undefined ? rest.convertRate : asset.convertRate;
+      if ((cc === null) !== (cr === null)) throw unprocessable("convert_incomplete", "Give both the conversion currency and the rate, or neither");
+      if (cc && cc === (currency ?? asset.currency)) throw unprocessable("convert_same_currency", "Pick a different currency to convert to");
+      if (cc) {
+        const [ok] = await this.db.select().from(currencies).where(eq(currencies.code, cc));
+        if (!ok) throw unprocessable("unsupported_currency", `Currency ${cc} is not supported`);
+      }
+    }
     if (rest.tracking && rest.tracking !== asset.tracking) {
       // units ↔ amount-only changes what every entry means, so it's only allowed before anything is recorded
       const [t] = await this.db.select({ id: trades.id }).from(trades).where(and(eq(trades.assetId, id), isNull(trades.deletedAt))).limit(1);
@@ -74,6 +84,7 @@ export class InvestmentsService {
         await rememberCurrency(tx, userId, currency);
       });
     } else if (Object.keys(rest).length) await this.db.update(assets).set(rest).where(eq(assets.id, id));
+    if (rest.convertCurrency) await rememberCurrency(this.db, userId, rest.convertCurrency);
     return this.getAsset(userId, id);
   }
 
@@ -186,6 +197,21 @@ export class InvestmentsService {
     return rows.map((p) => ({ asOn: p.asOn, priceMinor: Number(p.priceMinor), source: p.source }));
   }
 
+  /**
+   * The rate that turns one unit of the asset's currency into the base currency. An asset with a user-entered
+   * conversion uses it (1 asset currency = convertRate × convertCurrency), chained through FX only when its
+   * conversion currency isn't the base itself; otherwise the daily FX rate. Null when no rate is available.
+   */
+  private async toBaseRate(a: Asset, base: string, date: string, fx: (cur: string, date: string) => Promise<number | null>) {
+    if (a.currency === base) return 1; // already in the base currency: a display conversion doesn't change its worth
+    if (a.convertCurrency && a.convertRate) {
+      if (a.convertCurrency === base) return a.convertRate;
+      const r = await fx(a.convertCurrency, date);
+      if (r !== null) return a.convertRate * r;
+    }
+    return fx(a.currency, date);
+  }
+
   // ---------- holdings ----------
   private buildHolding(asset: Asset, rows: Trade[], price: { asOn: string; priceMinor: number } | null, today: string) {
     const p: Position = computePosition(toEngine(rows), asset.tracking, asset.costMethod);
@@ -258,10 +284,11 @@ export class InvestmentsService {
     const flows: Cashflow[] = [];
     const excluded: { assetId: string; symbol: string; reason: string }[] = [];
     let unpriced = 0;
+    const fxToday = async (cur: string, date: string) => (await this.fx.getRate(cur, base, date))?.rate ?? null;
     for (const h of holdings) {
-      const q = await this.fx.getRate(h.asset.currency, base, today);
-      if (!q) { excluded.push({ assetId: h.asset.id, symbol: h.asset.symbol, reason: `no FX rate ${h.asset.currency}→${base}` }); continue; }
-      const cv = (m: number) => convertMinor(r0(m), h.asset.currency, base, q.rate);
+      const rate = await this.toBaseRate(h.asset, base, today, fxToday);
+      if (rate === null) { excluded.push({ assetId: h.asset.id, symbol: h.asset.symbol, reason: `no FX rate ${h.asset.convertCurrency ?? h.asset.currency}→${base}` }); continue; }
+      const cv = (m: number) => convertMinor(r0(m), h.asset.currency, base, rate);
       const cost = cv(h._position.remainingCostMinor);
       const value = h._marketValue === null ? null : cv(h._marketValue);
       if (value === null && h._position.remainingCostMinor !== 0) unpriced++;
@@ -332,9 +359,9 @@ export class InvestmentsService {
         let price: number | null = null;
         for (const pr of allPrices) if (pr.assetId === a.id && pr.asOn <= date) price = Number(pr.priceMinor);
         const mv = price === null ? null : a.tracking === "units" ? p.quantity * price : price;
-        const fx = await rate(a.currency, date);
+        const fx = await this.toBaseRate(a, base, date, rate);
         if (fx === null) {
-          if (!excluded.some((e) => e.assetId === a.id)) excluded.push({ assetId: a.id, symbol: a.symbol, reason: `no FX rate ${a.currency}→${base}` });
+          if (!excluded.some((e) => e.assetId === a.id)) excluded.push({ assetId: a.id, symbol: a.symbol, reason: `no FX rate ${a.convertCurrency ?? a.currency}→${base}` });
           continue;
         }
         const cost = convertMinor(r0(p.remainingCostMinor), a.currency, base, fx);

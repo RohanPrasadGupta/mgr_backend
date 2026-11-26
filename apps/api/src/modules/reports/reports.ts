@@ -14,16 +14,22 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const n = (v: unknown) => Number(v ?? 0);
 
 /** Period bounds for a report and the one before it (previous month / previous year). */
-export function reportWindow(q: ReportQuery) {
+export function reportWindow(q: ReportQuery, all?: { first: string; today: string }) {
+  if (q.period === "all") {
+    // everything so far; there is no earlier period to compare with, so the "previous" window is empty
+    const from = all && all.first < all.today ? all.first : (all?.today ?? "1970-01-01");
+    return { label: "All time", from, to: all?.today ?? from, previousFrom: "1970-01-01", previousTo: "1969-12-31" };
+  }
+  const year = q.year!; // required for month/year reports (validated by the schema)
   if (q.period === "year") {
-    return { label: String(q.year), from: `${q.year}-01-01`, to: `${q.year}-12-31`, previousFrom: `${q.year - 1}-01-01`, previousTo: `${q.year - 1}-12-31` };
+    return { label: String(year), from: `${year}-01-01`, to: `${year}-12-31`, previousFrom: `${year - 1}-01-01`, previousTo: `${year - 1}-12-31` };
   }
   const m = q.month!;
-  const cur = monthRange(q.year, m);
-  const py = m === 1 ? q.year - 1 : q.year;
+  const cur = monthRange(year, m);
+  const py = m === 1 ? year - 1 : year;
   const pm = m === 1 ? 12 : m - 1;
   const prev = monthRange(py, pm);
-  return { label: `${FULL[m - 1]} ${q.year}`, from: cur.from, to: cur.to, previousFrom: prev.from, previousTo: prev.to };
+  return { label: `${FULL[m - 1]} ${year}`, from: cur.from, to: cur.to, previousFrom: prev.from, previousTo: prev.to };
 }
 
 @Injectable()
@@ -33,8 +39,16 @@ export class ReportsService {
   async report(userId: string, q: ReportQuery) {
     const [u] = await this.db.select().from(users).where(eq(users.id, userId));
     if (!u) throw notFound("User");
-    const w = reportWindow(q);
     const today = toLocalDate(new Date(), u.timezone);
+    let all: { first: string; today: string } | undefined;
+    if (q.period === "all") {
+      const r = (await this.db.execute(sql`select to_char(min(t.occurred_on), 'YYYY-MM-DD') as first from transactions t where t.user_id = ${userId} and t.deleted_at is null and t.kind in ('income','expense')`)).rows[0] as { first: string | null } | undefined;
+      all = { first: r?.first ?? today, today };
+    }
+    const w = reportWindow(q, all);
+    // all-time: one bar per year, or per month when the history is two years or less
+    const spanMonths = (Number(w.to.slice(0, 4)) - Number(w.from.slice(0, 4))) * 12 + Number(w.to.slice(5, 7)) - Number(w.from.slice(5, 7));
+    const bucket: "day" | "month" | "year" = q.period === "month" ? "day" : q.period === "year" || spanMonths <= 24 ? "month" : "year";
     const live = sql`t.user_id = ${userId} and t.deleted_at is null and t.kind in ('income','expense')`;
 
     const totals = async (from: string, to: string) => {
@@ -62,19 +76,21 @@ export class ReportsService {
 
     const [cur, prev, expenseByCategory, incomeByCategory] = await Promise.all([totals(w.from, w.to), totals(w.previousFrom, w.previousTo), byCat("expense"), byCat("income")]);
 
-    const step = q.period === "year" ? sql`interval '1 month'` : sql`interval '1 day'`;
+    const step = bucket === "year" ? sql`interval '1 year'` : bucket === "month" ? sql`interval '1 month'` : sql`interval '1 day'`;
+    const seriesFrom = bucket === "year" ? `${w.from.slice(0, 4)}-01-01` : bucket === "month" ? `${w.from.slice(0, 7)}-01` : w.from;
     const seriesRows = (await this.db.execute(sql`
       select to_char(g.d, 'YYYY-MM-DD') as start,
              coalesce(sum(t.base_amount_minor) filter (where t.kind='income'),0)::double precision as income,
              coalesce(sum(t.base_amount_minor) filter (where t.kind='expense'),0)::double precision as expense
-      from generate_series(${w.from}::date, ${w.to}::date, ${step}) as g(d)
-      left join transactions t on ${live} and ${q.period === "year" ? sql`date_trunc('month', t.occurred_on) = g.d` : sql`t.occurred_on = g.d::date`}
+      from generate_series(${seriesFrom}::date, ${w.to}::date, ${step}) as g(d)
+      left join transactions t on ${live} and ${bucket === "year" ? sql`date_trunc('year', t.occurred_on) = g.d` : bucket === "month" ? sql`date_trunc('month', t.occurred_on) = g.d` : sql`t.occurred_on = g.d::date`}
       group by g.d order by g.d`)).rows as Record<string, unknown>[];
     const series = seriesRows.map((r) => {
       const from = String(r.start);
       const [y, m, d] = from.split("-").map(Number) as [number, number, number];
-      return q.period === "year"
-        ? { label: MONTHS[m - 1]!, from, to: `${y}-${pad(m)}-${pad(daysInMonth(y, m))}`, incomeMinor: n(r.income), expenseMinor: n(r.expense) }
+      if (bucket === "year") return { label: String(y), from, to: `${y}-12-31`, incomeMinor: n(r.income), expenseMinor: n(r.expense) };
+      return bucket === "month"
+        ? { label: q.period === "all" ? `${MONTHS[m - 1]!} ${String(y).slice(2)}` : MONTHS[m - 1]!, from, to: `${y}-${pad(m)}-${pad(daysInMonth(y, m))}`, incomeMinor: n(r.income), expenseMinor: n(r.expense) }
         : { label: String(d), from, to: from, incomeMinor: n(r.income), expenseMinor: n(r.expense) };
     });
 

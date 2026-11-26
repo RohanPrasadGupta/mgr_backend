@@ -12,6 +12,33 @@ const mkAsset = async (token: string, body: object = {}) =>
   (await c.post("/v1/investments/assets", { symbol: "acme", name: "Acme Corporation", class: "stock", currency: "THB", ...body }, token)).body.data;
 
 describe("assets + trades", () => {
+  it("a user-entered conversion counts an asset in another currency at that rate, in totals and history", async () => {
+    const { token } = await registerUser(c, "conv@example.com", { baseCurrency: "NPR" });
+    const coin = await mkAsset(token, { symbol: "BTC", name: "Bitcoin", class: "crypto", tracking: "value", currency: "THB" });
+    await c.post("/v1/investments/trades", { assetId: coin.id, type: "contribution", amountMinor: 100_000, tradedOn: "2025-01-15" }, token); // THB 1,000
+    // no THB→NPR FX rate stored in tests: without a conversion the asset can't be counted
+    expect((await c.get("/v1/investments/portfolio", token)).body.data.excluded.map((e: any) => e.symbol)).toEqual(["BTC"]);
+    expect((await c.patch(`/v1/investments/assets/${coin.id}`, { convertCurrency: "NPR" }, token)).body.error.code).toBe("convert_incomplete");
+    expect((await c.patch(`/v1/investments/assets/${coin.id}`, { convertCurrency: "THB", convertRate: 2 }, token)).body.error.code).toBe("convert_same_currency");
+    const set = (await c.patch(`/v1/investments/assets/${coin.id}`, { convertCurrency: "NPR", convertRate: 4.2 }, token)).body.data;
+    expect(set).toMatchObject({ currency: "THB", convertCurrency: "NPR", convertRate: 4.2 });
+    const p = (await c.get("/v1/investments/portfolio", token)).body.data;
+    expect(p.excluded).toEqual([]);
+    expect(p.investedMinor).toBe(420_000); // NPR 4,200 = THB 1,000 × 4.2
+    const hist = (await c.get("/v1/investments/portfolio/history?months=24", token)).body.data;
+    expect(hist.points.at(-1).investedMinor).toBe(420_000);
+    // an asset already in the base currency counts as itself, whatever it's shown in
+    const local = await mkAsset(token, { symbol: "NEPSE", name: "Local", class: "fund", tracking: "value", currency: "NPR" });
+    await c.post("/v1/investments/trades", { assetId: local.id, type: "contribution", amountMinor: 1_000, tradedOn: "2025-01-15" }, token);
+    await c.patch(`/v1/investments/assets/${local.id}`, { convertCurrency: "THB", convertRate: 0.24 }, token);
+    expect((await c.get("/v1/investments/portfolio", token)).body.data.investedMinor).toBe(421_000);
+    await c.del(`/v1/investments/trades/${(await c.get(`/v1/investments/trades?assetId=${local.id}`, token)).body.data[0].id}`, token);
+    // removing it goes back to FX
+    await c.patch(`/v1/investments/assets/${coin.id}`, { convertCurrency: null, convertRate: null }, token);
+    expect((await c.get("/v1/investments/portfolio", token)).body.data.excluded).toHaveLength(1);
+  });
+
+
   it("crypto recorded by amount only: amount + fee per entry, units optional; tracking switchable only while empty", async () => {
     const { token } = await registerUser(c);
     const btc = await mkAsset(token, { symbol: "BTC", name: "Bitcoin", class: "crypto" }); // units by default
