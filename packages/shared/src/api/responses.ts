@@ -93,6 +93,8 @@ export const Holding = named("Holding", obj({
   asset: Asset, quantity: z.number(), avgCostMinor: z.number().nullable(), remainingCostMinor: money, totalBoughtMinor: money, totalSoldMinor: money, contributedMinor: money, withdrawnMinor: money,
   feesMinor: money, dividendsMinor: money, realisedPnlMinor: money, latestPrice: obj({ asOn: date, priceMinor: z.number() }).nullable(), marketValueMinor: money.nullable(),
   unrealisedPnlMinor: money.nullable(), returnPct: z.number().nullable(), xirrPct: z.number().nullable(), closed: z.boolean(), tradeCount: z.number().int(), firstTradedOn: date.nullable(), lastTradedOn: date.nullable(),
+  /** Price per unit of the most recent buy / sell (null when there is none). */
+  lastBuyPriceMinor: z.number().nullable(), lastSellPriceMinor: z.number().nullable(),
 }));
 export const Portfolio = named("Portfolio", obj({
   baseCurrency: z.string(), asOf: date, investedMinor: money, marketValueMinor: money, unrealisedPnlMinor: money, realisedPnlMinor: money, dividendsMinor: money,

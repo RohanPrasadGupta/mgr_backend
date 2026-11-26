@@ -15,7 +15,13 @@ export const createAssetSchema = z.object({
   costMethod: z.enum(["wavg", "fifo", "manual"]).default("wavg"),
 });
 export const updateAssetSchema = z
-  .object({ name: z.string().trim().min(1).max(100), costMethod: z.enum(["wavg", "fifo", "manual"]), archived: z.boolean() })
+  .object({
+    name: z.string().trim().min(1).max(100),
+    costMethod: z.enum(["wavg", "fifo", "manual"]),
+    archived: z.boolean(),
+    /** Relabels the asset and its trades/prices (amounts are not converted; recorded in the wrong currency → fix the label). */
+    currency: z.string().length(3).transform((s) => s.toUpperCase()),
+  })
   .partial();
 
 const money0 = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);

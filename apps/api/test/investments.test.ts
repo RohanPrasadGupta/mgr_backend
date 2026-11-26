@@ -12,6 +12,37 @@ const mkAsset = async (token: string, body: object = {}) =>
   (await c.post("/v1/investments/assets", { symbol: "acme", name: "Acme Corporation", class: "stock", currency: "THB", ...body }, token)).body.data;
 
 describe("assets + trades", () => {
+  it("relabels an asset's currency (amounts kept; minor units follow the decimals) and adds it to the user's list", async () => {
+    const { token } = await registerUser(c);
+    const a = await mkAsset(token); // THB
+    await c.post("/v1/investments/trades", { assetId: a.id, type: "buy", quantity: 10, priceMinor: 43_300, tradedOn: "2025-01-01" }, token);
+    const npr = (await c.patch(`/v1/investments/assets/${a.id}`, { currency: "NPR" }, token)).body.data;
+    expect(npr.currency).toBe("NPR");
+    expect((await c.get(`/v1/investments/assets/${a.id}`, token)).body.data).toMatchObject({ totalBoughtMinor: 433_000, avgCostMinor: 43_300 });
+    expect((await c.get("/v1/me", token)).body.data.currencies).toContain("NPR");
+    // to a 0-decimal currency: NPR 4,330.00 stays 4,330 (JPY), stored as 4330 minor units
+    const jpy = await c.patch(`/v1/investments/assets/${a.id}`, { currency: "JPY" }, token);
+    expect(jpy.body).toMatchObject({ data: { currency: "JPY" } });
+    expect((await c.get(`/v1/investments/assets/${a.id}`, token)).body.data).toMatchObject({ totalBoughtMinor: 4_330, avgCostMinor: 433 });
+    expect((await c.patch(`/v1/investments/assets/${a.id}`, { currency: "XXX" }, token)).body.error.code).toBe("unsupported_currency");
+  });
+
+  it("reports the latest buy and sell price, and respects 'use for average' on any cost method", async () => {
+    const { token } = await registerUser(c);
+    const a = await mkAsset(token);
+    const add = (b: object) => c.post("/v1/investments/trades", { assetId: a.id, ...b }, token);
+    await add({ type: "buy", quantity: 10, priceMinor: 100, tradedOn: "2025-01-01" });
+    const second = (await add({ type: "buy", quantity: 10, priceMinor: 500, tradedOn: "2025-02-01" })).body.data;
+    await add({ type: "sell", quantity: 5, priceMinor: 700, tradedOn: "2025-03-01" });
+    let h = (await c.get(`/v1/investments/assets/${a.id}`, token)).body.data;
+    expect(h).toMatchObject({ lastBuyPriceMinor: 500, lastSellPriceMinor: 700, avgCostMinor: 300 });
+    await c.patch(`/v1/investments/trades/${second.id}`, { includeInAvg: false }, token);
+    h = (await c.get(`/v1/investments/assets/${a.id}`, token)).body.data;
+    expect(h.avgCostMinor).toBe(100); // the switched-off buy no longer counts toward the average
+    expect(h.remainingCostMinor).toBe(4500); // …but still toward what the holding cost
+  });
+
+
   it("changes an entry's type: buy ↔ sell keeps the units and price, and the new type must be valid", async () => {
     const { token } = await registerUser(c);
     const a = await mkAsset(token);

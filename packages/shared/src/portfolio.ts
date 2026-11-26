@@ -20,7 +20,11 @@ export interface Cashflow { date: string; amountMinor: number }
 export interface Position {
   quantity: number;
   remainingCostMinor: number;
-  /** Displayed average cost per unit (minor units, fractional). `manual` uses only trades flagged includeInAvg. */
+  /**
+   * Displayed average cost per unit (minor units, fractional). Buys flagged includeInAvg = false are left out of it
+   * (for every cost method) as long as at least one buy is flagged; `manual` always uses the flagged buys only.
+   * P/L and the cost of the holding always count every buy.
+   */
   avgCostMinor: number | null;
   totalBoughtMinor: number;
   totalSoldMinor: number;
@@ -47,7 +51,7 @@ export function computePosition(input: EngineTrade[], tracking: Tracking, method
   };
   let cost = 0, qty = 0;
   const lots: { qty: number; unitCost: number }[] = [];
-  let incCost = 0, incQty = 0; // `manual` displayed average
+  let incCost = 0, incQty = 0, excluded = 0; // the "use for average" buys
 
   for (const t of sortTrades(input)) {
     const q = t.quantity ?? 0;
@@ -62,7 +66,7 @@ export function computePosition(input: EngineTrade[], tracking: Tracking, method
         const c = t.amountMinor + t.feeMinor;
         qty += q; cost += c; lots.push({ qty: q, unitCost: c / q });
         p.totalBoughtMinor += t.amountMinor;
-        if (t.includeInAvg) { incCost += c; incQty += q; }
+        if (t.includeInAvg) { incCost += c; incQty += q; } else excluded++;
         p.cashflows.push({ date: t.tradedOn, amountMinor: -c });
         break;
       }
@@ -116,7 +120,10 @@ export function computePosition(input: EngineTrade[], tracking: Tracking, method
   p.quantity = qty;
   p.remainingCostMinor = qty === 0 && tracking === "units" ? 0 : cost;
   if (tracking === "units") {
-    p.avgCostMinor = method === "manual" ? (incQty > 0 ? incCost / incQty : null) : qty > 0 ? cost / qty : null;
+    const methodAvg = qty > 0 ? cost / qty : null;
+    if (method === "manual") p.avgCostMinor = incQty > 0 ? incCost / incQty : null;
+    // some buys switched off (and some on): average the ones that are on; nothing switched on means "use them all"
+    else p.avgCostMinor = excluded > 0 && incQty > 0 && qty > 0 ? incCost / incQty : methodAvg;
   }
   return p;
 }

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gte, inArray, isNull, lte, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import {
-  computePosition, convertMinor, defaultTracking, monthRange, toLocalDate, xirr,
+  computePosition, convertMinor, defaultTracking, minorUnit, monthRange, toLocalDate, xirr,
   type Cashflow, type CreateAssetInput, type CreateTradeInput, type EngineTrade, type ListTradesInput, type Position,
   type SetPriceInput, type UpdateAssetInput, type UpdateTradeInput,
 } from "@moneymgr/shared";
@@ -50,8 +50,25 @@ export class InvestmentsService {
   }
 
   async updateAsset(userId: string, id: string, input: UpdateAssetInput) {
-    await this.getAsset(userId, id);
-    if (Object.keys(input).length) await this.db.update(assets).set(input).where(eq(assets.id, id));
+    const asset = await this.getAsset(userId, id);
+    const { currency, ...rest } = input;
+    if (currency && currency !== asset.currency) {
+      const [cur] = await this.db.select().from(currencies).where(eq(currencies.code, currency));
+      if (!cur) throw unprocessable("unsupported_currency", `Currency ${currency} is not supported`);
+      // A relabel, not a conversion: the numbers stay what the user typed. Only the stored minor units follow the new
+      // currency's decimals (e.g. THB 2 → JPY 0), so "10.50" stays 10.50 rather than becoming 1050.
+      const shift = 10 ** (minorUnit(currency) - minorUnit(asset.currency));
+      await this.db.transaction(async (tx) => {
+        if (shift !== 1) {
+          // a power of ten computed above (never user input), written as a numeric literal so Postgres knows its type
+          const k = sql.raw(`${shift}::numeric`);
+          await tx.update(trades).set({ amountMinor: sql`round(${trades.amountMinor} * ${k})`, feeMinor: sql`round(${trades.feeMinor} * ${k})`, priceMinor: sql`${trades.priceMinor} * ${k}` }).where(eq(trades.assetId, id));
+          await tx.update(assetPrices).set({ priceMinor: sql`${assetPrices.priceMinor} * ${k}` }).where(eq(assetPrices.assetId, id));
+        }
+        await tx.update(assets).set({ ...rest, currency }).where(eq(assets.id, id));
+        await rememberCurrency(tx, userId, currency);
+      });
+    } else if (Object.keys(rest).length) await this.db.update(assets).set(rest).where(eq(assets.id, id));
     return this.getAsset(userId, id);
   }
 
@@ -172,6 +189,12 @@ export class InvestmentsService {
     if (marketValue && marketValue > 0) flows.push({ date: today, amountMinor: marketValue });
     const irr = marketValue === null && p.quantity !== 0 ? null : xirr(flows);
     const dates = rows.map((t) => t.tradedOn).sort();
+    // rows arrive in creation order, so the last one per date is the latest entry of that day
+    const latest = (type: "buy" | "sell") => {
+      const of = rows.filter((t) => t.type === type && t.priceMinor !== null);
+      const last = of.reduce<Trade | null>((best, t) => (!best || t.tradedOn >= best.tradedOn ? t : best), null);
+      return last ? r4(Number(last.priceMinor)) : null;
+    };
     return {
       asset,
       quantity: r4(p.quantity),
@@ -186,6 +209,7 @@ export class InvestmentsService {
       xirrPct: irr === null ? null : r4(irr * 100),
       closed: units && p.quantity === 0 && rows.length > 0,
       tradeCount: rows.length, firstTradedOn: dates[0] ?? null, lastTradedOn: dates[dates.length - 1] ?? null,
+      lastBuyPriceMinor: latest("buy"), lastSellPriceMinor: latest("sell"),
       _position: p, _marketValue: marketValue,
     };
   }

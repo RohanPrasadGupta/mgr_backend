@@ -22,6 +22,15 @@ describe("position engine (units)", () => {
     expect(p.realisedPnlMinor).toBe(750); // running wavg across all buys
     expect(computePosition([t("buy", "2025-01-01", 1, 100, { includeInAvg: false })], "units", "manual").avgCostMinor).toBeNull();
   });
+  it("weighted average: a buy switched off 'use for average' is left out of the average, not out of P/L", () => {
+    const ts = [t("buy", "2025-01-01", 10, 1000), t("buy", "2025-02-01", 10, 5000, { includeInAvg: false })];
+    const p = computePosition(ts, "units", "wavg");
+    expect(p.avgCostMinor).toBe(100); // only the first buy
+    expect(p.remainingCostMinor).toBe(6000); // the holding still cost all of it
+    // nothing switched on (old imports) → every buy counts, as before
+    const none = [t("buy", "2025-01-01", 10, 1000, { includeInAvg: false }), t("buy", "2025-02-01", 10, 3000, { includeInAvg: false })];
+    expect(computePosition(none, "units", "wavg").avgCostMinor).toBe(200);
+  });
   it("capitalises buy fees into cost and nets sell fees from proceeds", () => {
     const p = computePosition([t("buy", "2025-01-01", 10, 1000, { feeMinor: 10 }), t("sell", "2025-02-01", 10, 1200, { feeMinor: 20 })], "units", "wavg");
     expect(p).toMatchObject({ quantity: 0, remainingCostMinor: 0, realisedPnlMinor: 1180 - 1010, feesMinor: 30 });
