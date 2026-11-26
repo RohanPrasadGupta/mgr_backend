@@ -32,6 +32,10 @@ const schema = z.object({
   // In production list ONLY the reverse proxy / gateway network, or clients can forge their IP (rate limits, audit log).
   TRUST_PROXY: z.string().default("true").transform((v): boolean | string => (v === "true" ? true : v === "false" ? false : v)),
   UPLOAD_DIR: z.string().default("./uploads"),
+  /** One log line per request (method, path, status, duration, IP, user, request id). Never bodies, headers or query strings. */
+  LOG_REQUESTS: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
+  /** text = easy to read in a terminal / Render; json = one JSON object per line, for log tools (CloudWatch, Loki…). */
+  LOG_FORMAT: z.enum(["text", "json"]).default("text"),
   /** Signs admin tokens and encrypts admin 2FA secrets. Must differ from JWT_SECRET so a customer token can never pass as an admin's. */
   ADMIN_SECRET: z.string().min(32, "ADMIN_SECRET must be at least 32 characters").optional(),
   /** Admin access tokens are short; the admin site refreshes them. Sessions end after this many hours regardless. */

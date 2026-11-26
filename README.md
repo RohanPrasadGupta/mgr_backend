@@ -38,6 +38,17 @@ Conventions: money = integer minor units + currency; each transaction stores `fx
 Budget AWS setup (one ARM server in Singapore, Docker, automatic HTTPS, nightly S3 backups, ~$25/month): see [infra/aws/README.md](infra/aws/README.md).
 The API image is `apps/api/Dockerfile` (build context = repo root); it applies migrations on every start.
 
+## Request logs
+The API prints one line per request to stdout (Render / Docker logs):
+```
+2026-11-26T07:12:51.616Z WARN  POST /v1/auth/login 401 18ms ip=203.0.113.7 rid=d67bdbf1-…
+2026-11-26T07:12:52.004Z INFO  GET /v1/transactions 200 9ms ip=203.0.113.7 user=0f3c…-… rid=4a1e…
+```
+Level follows the status (5xx `ERROR`, 4xx `WARN`). Query strings, headers and bodies are never logged; successful `/health`
+and `/ready` probes are skipped. Every response carries `X-Request-Id` (a caller may send its own, 8–64 safe characters),
+and an unexpected error's stack trace starts with the same `rid=`, so a user's report leads straight to the failing request.
+`LOG_FORMAT=json` for log tools; `LOG_REQUESTS=false` to turn it off.
+
 ## Admin accounts
 Admins are separate from users and are managed from the command line (each command is written to the audit log):
 ```bash
