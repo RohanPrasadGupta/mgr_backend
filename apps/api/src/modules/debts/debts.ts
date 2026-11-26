@@ -8,6 +8,7 @@ import { currencies, debtPayments, debts, users } from "../../db/schema";
 import { notFound, unprocessable } from "../../common/errors";
 import { ZodPipe } from "../../common/zod.pipe";
 import { UserId } from "../auth/auth.guard";
+import { rememberCurrency } from "../users/user-currencies";
 
 type DebtRow = typeof debts.$inferSelect;
 
@@ -67,6 +68,7 @@ export class DebtsService {
     const [c] = await this.db.select().from(currencies).where(eq(currencies.code, currency));
     if (!c) throw unprocessable("unsupported_currency", `Currency ${currency} is not supported`);
     const [row] = await this.db.insert(debts).values({ userId, ...b, currency, startedOn: b.startedOn ?? toLocalDate(new Date(), u.timezone) }).returning();
+    await rememberCurrency(this.db, userId, currency);
     return (await this.decorate(userId, [row!]))[0]!;
   }
   async update(userId: string, id: string, b: UpdateDebtInput) {

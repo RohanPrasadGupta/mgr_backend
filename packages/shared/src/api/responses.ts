@@ -18,7 +18,7 @@ const obj = z.strictObject;
 
 export const ErrorBody = named("ErrorBody", obj({ error: obj({ code: z.string(), message: z.string(), details: z.unknown().optional() }) }));
 
-export const User = named("User", obj({ id: uuid, email: z.email(), name: z.string(), baseCurrency: z.string(), timezone: z.string(), locale: z.string(), weekStart: z.number().int(), emailVerified: z.boolean() }));
+export const User = named("User", obj({ id: uuid, email: z.email(), name: z.string(), baseCurrency: z.string(), currencies: z.array(z.string()), timezone: z.string(), locale: z.string(), weekStart: z.number().int(), emailVerified: z.boolean() }));
 export const TokenPair = named("TokenPair", obj({ accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
 export const AuthResult = named("AuthResult", obj({ user: User, accessToken: z.string(), refreshToken: z.string(), expiresIn: z.number().int() }));
 export const Currency = named("Currency", obj({ code: z.string(), name: z.string(), symbol: z.string(), minorUnit: z.number().int() }));

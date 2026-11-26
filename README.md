@@ -51,6 +51,13 @@ and `/ready` probes are skipped. Every response carries `X-Request-Id` (a caller
 and an unexpected error's stack trace starts with the same `rid=`, so a user's report leads straight to the failing request.
 `LOG_FORMAT=json` for log tools; `LOG_REQUESTS=false` to turn it off.
 
+## Currencies
+153 currencies (all with daily FX rates) are seeded into `currencies` on every start; decimal places follow ISO 4217
+(`minorUnit` in `packages/shared/src/money.ts` — the web, phone and admin apps' `lib/money.ts` must match). Each user
+has their own list in `users.currencies` (`GET/PATCH /me` → `currencies`): the base currency is always in it, and
+creating an account, asset or debt — or importing — in another currency adds that currency automatically. The apps
+show your currencies first in every picker and the rest under "Other currencies"; the list is edited in Settings.
+
 ## Admin accounts
 Admins are separate from users and are managed from the command line (each command is written to the audit log):
 ```bash

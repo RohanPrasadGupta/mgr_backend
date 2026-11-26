@@ -6,6 +6,7 @@ import { assets, trades, users } from "../../db/schema";
 import { notFound, unprocessable } from "../../common/errors";
 import { stableUuid } from "../../common/ids";
 import { mapV1Row, type MappedRow } from "./investment-mappers";
+import { rememberCurrency } from "../users/user-currencies";
 
 export interface InvestmentImportReport {
   source: string; dryRun: boolean; total: number; imported: number; duplicates: number;
@@ -57,6 +58,7 @@ export class InvestmentImportsService {
             else {
               const [row] = await tx.insert(assets).values({ userId, symbol: m.asset.symbol, name: m.asset.name, class: m.asset.class, currency: m.asset.currency, tracking: m.asset.tracking, costMethod }).returning();
               a = { id: row!.id, tracking: row!.tracking, costMethod: row!.costMethod, currency: row!.currency };
+              await rememberCurrency(tx, userId, row!.currency);
             }
           }
           resolved.set(k, a);

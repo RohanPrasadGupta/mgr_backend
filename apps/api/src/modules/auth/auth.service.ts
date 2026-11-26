@@ -10,6 +10,7 @@ import { AppError, conflict, notFound, unauthorized, unprocessable } from "../..
 import { KEYS, KV, type Keys, type Kv } from "../../infra/kv";
 import { MAILER, actionEmail, type Mailer } from "../../infra/mailer";
 import { newRefreshToken, sha256, signAccessToken } from "./tokens";
+import { userCurrencies } from "../users/user-currencies";
 
 const LOCK_WINDOW_SEC = 15 * 60;
 /** Only after a correct password, so it can't be used to probe which emails are suspended. */
@@ -19,7 +20,7 @@ const VERIFY_TTL_SEC = 48 * 60 * 60; // 2 days
 const MAIL_COOLDOWN_SEC = 60; // one email per minute per address and kind
 
 export const publicUser = (u: typeof users.$inferSelect) => ({
-  id: u.id, email: u.email, name: u.name, baseCurrency: u.baseCurrency, timezone: u.timezone, locale: u.locale, weekStart: u.weekStart, emailVerified: !!u.emailVerifiedAt,
+  id: u.id, email: u.email, name: u.name, baseCurrency: u.baseCurrency, currencies: userCurrencies(u), timezone: u.timezone, locale: u.locale, weekStart: u.weekStart, emailVerified: !!u.emailVerifiedAt,
 });
 
 @Injectable()
@@ -44,7 +45,7 @@ export class AuthService {
     const user = await this.db.transaction(async (tx) => {
       const [u] = await tx
         .insert(users)
-        .values({ email: input.email, passwordHash, name: input.name, baseCurrency, timezone: input.timezone ?? "UTC" })
+        .values({ email: input.email, passwordHash, name: input.name, baseCurrency, currencies: [baseCurrency], timezone: input.timezone ?? "UTC" })
         .returning();
       await tx.insert(accounts).values({ userId: u!.id, name: "Cash", type: "cash", currency: baseCurrency });
       await tx.insert(categories).values([

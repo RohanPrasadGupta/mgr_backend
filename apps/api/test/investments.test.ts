@@ -12,6 +12,26 @@ const mkAsset = async (token: string, body: object = {}) =>
   (await c.post("/v1/investments/assets", { symbol: "acme", name: "Acme Corporation", class: "stock", currency: "THB", ...body }, token)).body.data;
 
 describe("assets + trades", () => {
+  it("changes an entry's type: buy ↔ sell keeps the units and price, and the new type must be valid", async () => {
+    const { token } = await registerUser(c);
+    const a = await mkAsset(token);
+    await c.post("/v1/investments/trades", { assetId: a.id, type: "buy", quantity: 10, priceMinor: 100, tradedOn: "2025-01-01" }, token);
+    const wrong = (await c.post("/v1/investments/trades", { assetId: a.id, type: "buy", quantity: 4, priceMinor: 150, tradedOn: "2025-02-01" }, token)).body.data;
+    const sell = (await c.patch(`/v1/investments/trades/${wrong.id}`, { type: "sell" }, token)).body.data;
+    expect(sell).toMatchObject({ type: "sell", quantity: 4, priceMinor: 150, amountMinor: 600 });
+    expect((await c.get(`/v1/investments/assets/${a.id}`, token)).body.data.quantity).toBe(6);
+    // and back, changing the price at the same time
+    expect((await c.patch(`/v1/investments/trades/${wrong.id}`, { type: "buy", priceMinor: 120 }, token)).body.data).toMatchObject({ type: "buy", amountMinor: 480 });
+    // a sell larger than the holding is still refused
+    const big = (await c.post("/v1/investments/trades", { assetId: a.id, type: "buy", quantity: 20, priceMinor: 100, tradedOn: "2025-03-01" }, token)).body.data;
+    expect((await c.patch(`/v1/investments/trades/${big.id}`, { type: "sell" }, token)).body.error.code).toBe("insufficient_quantity");
+    // a dividend needs an amount; switching to one keeps the old amount; units-only kinds can't go on a value-tracked asset
+    expect((await c.patch(`/v1/investments/trades/${wrong.id}`, { type: "dividend" }, token)).body.data).toMatchObject({ type: "dividend", quantity: null, amountMinor: 480 });
+    expect((await c.patch(`/v1/investments/trades/${wrong.id}`, { type: "buy" }, token)).body.error.code).toBe("quantity_required");
+    expect((await c.patch(`/v1/investments/trades/${wrong.id}`, { type: "contribution" }, token)).body.error.code).toBe("invalid_trade_for_asset");
+  });
+
+
   it("creates assets with class-based tracking, rejects duplicates and bad currency", async () => {
     const { token } = await registerUser(c);
     const stock = await mkAsset(token);

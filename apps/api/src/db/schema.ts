@@ -44,6 +44,8 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   baseCurrency: text("base_currency").notNull().references(() => currencies.code).default("THB"),
+  /** The currencies this user works with, shown first in every currency picker (the base currency is always included). */
+  currencies: text("currencies").array().notNull().default(sql`'{}'::text[]`),
   timezone: text("timezone").notNull().default("UTC"),
   locale: text("locale").notNull().default("en"),
   weekStart: integer("week_start").notNull().default(1),

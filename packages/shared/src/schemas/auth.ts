@@ -20,6 +20,8 @@ export const updateMeSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
     baseCurrency: currencyCode,
+    /** The user's own currency list (shown first in pickers). The base currency is always kept in it. */
+    currencies: z.array(currencyCode).max(60),
     timezone: timeZone,
     locale: z.string().min(2).max(10),
     weekStart: z.number().int().min(0).max(6),

@@ -6,6 +6,7 @@ import { accounts, categories, transactions, users } from "../../db/schema";
 import { notFound } from "../../common/errors";
 import { stableUuid } from "../../common/ids";
 import { FxService } from "../fx/fx.service";
+import { rememberCurrency } from "../users/user-currencies";
 
 type Kind = "income" | "expense";
 export interface ImportReport {
@@ -112,6 +113,7 @@ export class ImportsService {
         if (dryRun) { acctIds.set(key, `dry:${name}`); continue; }
         const [a] = await tx.insert(accounts).values({ userId, name, type: guessAccountType(row.account), currency: row.currency }).returning({ id: accounts.id });
         acctByKey.set(`${name}|${row.currency}`, a!.id);
+        await rememberCurrency(tx, userId, row.currency);
         acctIds.set(key, a!.id);
       }
 

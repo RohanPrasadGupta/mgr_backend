@@ -4,6 +4,7 @@ import type { CreateAccountInput, UpdateAccountInput } from "@moneymgr/shared";
 import { DB, type Db } from "../../db/db";
 import { accounts, currencies, recurringRules, transactions } from "../../db/schema";
 import { conflict, notFound, unprocessable } from "../../common/errors";
+import { rememberCurrency } from "../users/user-currencies";
 
 @Injectable()
 export class AccountsService {
@@ -37,6 +38,7 @@ export class AccountsService {
     const [cur] = await this.db.select().from(currencies).where(eq(currencies.code, input.currency));
     if (!cur) throw unprocessable("unsupported_currency", `Currency ${input.currency} is not supported`);
     const [row] = await this.db.insert(accounts).values({ ...input, userId }).returning();
+    await rememberCurrency(this.db, userId, input.currency);
     return this.get(userId, row!.id);
   }
 

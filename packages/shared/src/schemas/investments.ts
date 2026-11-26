@@ -45,6 +45,8 @@ export const createTradeSchema = z
   });
 export const updateTradeSchema = z
   .object({
+    /** Change the kind of entry (e.g. a buy recorded as a sell); the API checks the fields the new kind needs. */
+    type: z.enum(tradeTypes),
     quantity: z.number().positive().max(1e12),
     priceMinor: z.number().positive().max(1e15),
     amountMinor: money0,

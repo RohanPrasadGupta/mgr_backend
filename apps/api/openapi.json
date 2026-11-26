@@ -555,6 +555,15 @@
                     "minLength": 3,
                     "maxLength": 3
                   },
+                  "currencies": {
+                    "maxItems": 60,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 3
+                    }
+                  },
                   "timezone": {
                     "type": "string"
                   },
@@ -3841,6 +3850,18 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "buy",
+                      "sell",
+                      "dividend",
+                      "bonus",
+                      "fee",
+                      "contribution",
+                      "withdrawal"
+                    ]
+                  },
                   "quantity": {
                     "type": "number",
                     "exclusiveMinimum": 0,
@@ -10910,6 +10931,12 @@
           "baseCurrency": {
             "type": "string"
           },
+          "currencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "timezone": {
             "type": "string"
           },
@@ -10928,6 +10955,7 @@
           "email",
           "name",
           "baseCurrency",
+          "currencies",
           "timezone",
           "locale",
           "weekStart",

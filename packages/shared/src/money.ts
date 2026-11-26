@@ -1,8 +1,11 @@
 /** Money is always integer minor units + ISO-4217 code. Never floats. */
-const ZERO_DECIMAL = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "UGX", "XAF", "XOF"]);
+/** Decimal places per ISO 4217 (most currencies use 2). Keep in step with the web and phone apps' lib/money.ts. */
+export const ZERO_DECIMAL = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "UGX", "PYG", "XAF", "XOF", "XPF", "KMF", "DJF", "GNF", "RWF", "VUV", "BIF"]);
+export const THREE_DECIMAL = new Set(["BHD", "KWD", "OMR", "JOD", "TND", "LYD", "IQD"]);
 
 export function minorUnit(code: string): number {
-  return ZERO_DECIMAL.has(code.toUpperCase()) ? 0 : 2;
+  const c = code.toUpperCase();
+  return ZERO_DECIMAL.has(c) ? 0 : THREE_DECIMAL.has(c) ? 3 : 2;
 }
 
 export function toMinor(major: number, currency: string): number {

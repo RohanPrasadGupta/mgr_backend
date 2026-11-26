@@ -9,6 +9,7 @@ import { DB, type Db } from "../../db/db";
 import { assetPrices, assets, currencies, trades, users } from "../../db/schema";
 import { conflict, notFound, unprocessable } from "../../common/errors";
 import { FxService } from "../fx/fx.service";
+import { rememberCurrency } from "../users/user-currencies";
 
 type Asset = typeof assets.$inferSelect;
 type Trade = typeof trades.$inferSelect;
@@ -44,6 +45,7 @@ export class InvestmentsService {
       .insert(assets)
       .values({ userId, symbol: input.symbol, name: input.name, class: input.class, currency: input.currency, tracking: input.tracking ?? defaultTracking(input.class), costMethod: input.costMethod })
       .returning();
+    await rememberCurrency(this.db, userId, input.currency);
     return row!;
   }
 
@@ -108,11 +110,19 @@ export class InvestmentsService {
     const [cur] = await this.db.select().from(trades).where(and(eq(trades.id, id), eq(trades.userId, userId), isNull(trades.deletedAt)));
     if (!cur) throw notFound("Trade");
     const asset = await this.getAsset(userId, cur.assetId);
-    const merged = { type: cur.type, quantity: input.quantity ?? num(cur.quantity), priceMinor: input.priceMinor ?? num(cur.priceMinor), amountMinor: input.amountMinor ?? cur.amountMinor };
-    // changing quantity/price without an explicit amount re-derives the amount
-    if ((input.quantity !== undefined || input.priceMinor !== undefined) && input.amountMinor === undefined && (cur.type === "buy" || cur.type === "sell")) merged.amountMinor = undefined as unknown as number;
+    const type = input.type ?? cur.type;
+    const priced = type === "buy" || type === "sell";
+    const merged = { type, quantity: input.quantity ?? num(cur.quantity), priceMinor: input.priceMinor ?? num(cur.priceMinor), amountMinor: input.amountMinor ?? cur.amountMinor };
+    // changing quantity/price (or turning another kind into a buy/sell) without an explicit amount re-derives the amount
+    const wasPriced = cur.type === "buy" || cur.type === "sell";
+    if (priced && input.amountMinor === undefined && (input.quantity !== undefined || input.priceMinor !== undefined || !wasPriced)) merged.amountMinor = undefined as unknown as number;
+    // a new type must come with what it needs (a buy/sell needs units and a price, a dividend an amount…)
+    if ((priced || type === "bonus") && !(merged.quantity && merged.quantity > 0)) throw unprocessable("quantity_required", `A ${type} needs a quantity`);
+    if (priced && !(merged.priceMinor && merged.priceMinor > 0) && merged.amountMinor === undefined) throw unprocessable("price_required", `A ${type} needs a price`);
+    if (!priced && type !== "bonus" && !(merged.amountMinor && merged.amountMinor > 0)) throw unprocessable("amount_required", `A ${type} needs an amount`);
     const n = this.normalise(asset, merged);
-    const patch = { quantity: n.quantity === null ? null : String(n.quantity), priceMinor: n.priceMinor === null ? null : String(n.priceMinor), amountMinor: n.amountMinor, feeMinor: input.feeMinor ?? cur.feeMinor, tradedOn: input.tradedOn ?? cur.tradedOn, note: input.note === undefined ? cur.note : input.note, includeInAvg: input.includeInAvg ?? cur.includeInAvg };
+    const patch = {
+      type, quantity: n.quantity === null ? null : String(n.quantity), priceMinor: n.priceMinor === null ? null : String(n.priceMinor), amountMinor: n.amountMinor, feeMinor: input.feeMinor ?? cur.feeMinor, tradedOn: input.tradedOn ?? cur.tradedOn, note: input.note === undefined ? cur.note : input.note, includeInAvg: input.includeInAvg ?? cur.includeInAvg };
     const rows = (await this.assetTrades(userId, asset.id)).map((t) => (t.id === id ? { ...t, ...patch } : t));
     this.assertPosition(asset, rows);
     const [row] = await this.db.update(trades).set(patch).where(eq(trades.id, id)).returning();

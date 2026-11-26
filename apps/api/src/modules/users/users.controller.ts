@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Patch, Post } from "@nestjs/common";
 import { RouteConfig } from "@nestjs/platform-fastify";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { changePasswordSchema, deleteAccountSchema, updateMeSchema, type UpdateMeInput } from "@moneymgr/shared";
 import { DB, type Db } from "../../db/db";
 import { currencies, users } from "../../db/schema";
@@ -30,11 +30,19 @@ export class UsersController {
 
   @Patch()
   async update(@UserId() userId: string, @Body(new ZodPipe(updateMeSchema)) body: UpdateMeInput) {
-    if (body.baseCurrency) {
-      const [c] = await this.db.select().from(currencies).where(eq(currencies.code, body.baseCurrency));
-      if (!c) throw unprocessable("unsupported_currency", `Currency ${body.baseCurrency} is not supported`);
+    const wanted = [...new Set([...(body.baseCurrency ? [body.baseCurrency] : []), ...(body.currencies ?? [])])];
+    if (wanted.length) {
+      const known = new Set((await this.db.select({ code: currencies.code }).from(currencies).where(inArray(currencies.code, wanted))).map((c) => c.code));
+      const unknown = wanted.filter((c) => !known.has(c));
+      if (unknown.length) throw unprocessable("unsupported_currency", `Currency ${unknown.join(", ")} is not supported`);
     }
-    const [u] = await this.db.update(users).set(body).where(eq(users.id, userId)).returning();
+    const [cur] = await this.db.select({ baseCurrency: users.baseCurrency, currencies: users.currencies }).from(users).where(eq(users.id, userId));
+    if (!cur) throw notFound("User");
+    // the base currency always stays in the list: a new base is added, and removing the base from the list is ignored
+    const base = body.baseCurrency ?? cur.baseCurrency;
+    const list = body.currencies ? [...new Set(body.currencies)] : cur.currencies;
+    const next = list.includes(base) ? list : [base, ...list];
+    const [u] = await this.db.update(users).set({ ...body, currencies: next }).where(eq(users.id, userId)).returning();
     if (!u) throw notFound("User");
     return { data: publicUser(u) };
   }
