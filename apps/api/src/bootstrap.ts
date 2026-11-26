@@ -7,15 +7,20 @@ import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
 import type Redis from "ioredis";
 import { KEYS, REDIS, type Keys } from "./infra/kv";
+import { genRequestId, registerRequestLog, type LogSink } from "./infra/request-log";
 import { MAX_ATTACHMENT_BYTES } from "./modules/attachments/attachments";
 import { AppModule } from "./app.module";
 import { loadConfig } from "./config";
 
-export async function createApp(opts: { logger?: boolean } = {}) {
+export async function createApp(opts: { logger?: boolean; requestLog?: LogSink } = {}) {
   const config = loadConfig();
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ trustProxy: config.TRUST_PROXY, bodyLimit: 10 * 1024 * 1024 }), {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ trustProxy: config.TRUST_PROXY, bodyLimit: 10 * 1024 * 1024, genReqId: genRequestId }), {
     logger: opts.logger === false ? false : ["error", "warn", "log"],
   });
+  // Registered first so even requests rejected by CORS or the rate limiter get logged. Tests pass their own sink.
+  if (opts.requestLog || (opts.logger !== false && config.LOG_REQUESTS)) {
+    registerRequestLog(app.getHttpAdapter().getInstance(), { format: config.LOG_FORMAT, sink: opts.requestLog });
+  }
   await app.register(helmet);
   await app.register(cors, {
     origin: config.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean),

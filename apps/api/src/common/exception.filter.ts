@@ -1,5 +1,5 @@
 import { Catch, HttpException, Logger, type ArgumentsHost, type ExceptionFilter } from "@nestjs/common";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError, isMissingUserViolation, isUniqueViolation } from "./errors";
 
 @Catch()
@@ -31,7 +31,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code = "rate_limited";
       message = "Too many requests";
     } else {
-      this.log.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+      // The request id ties this stack trace to its line in the request log (and to the X-Request-Id the client got).
+      const rid = host.switchToHttp().getRequest<FastifyRequest>()?.id;
+      this.log.error(`${rid ? `rid=${rid} ` : ""}${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     }
     void reply.status(status).send({ error: { code, message, ...(details ? { details } : {}) } });
   }
