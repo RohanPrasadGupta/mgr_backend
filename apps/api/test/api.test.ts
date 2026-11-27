@@ -144,6 +144,23 @@ describe("ledger", () => {
     expect((await c.get(`/v1/transactions/${t.id}`, token)).status).toBe(404);
     expect((await c.del(`/v1/accounts/${acct.id}`, token)).status).toBe(204);
   });
+
+  it("moves a transaction to another account (re-priced when that account uses another currency)", async () => {
+    const { token } = await registerUser(c); // base THB
+    const [cash] = (await c.get("/v1/accounts", token)).body.data;
+    const online = (await c.post("/v1/accounts", { name: "Online", type: "bank", currency: "THB" }, token)).body.data;
+    const npr = (await c.post("/v1/accounts", { name: "NPR", type: "bank", currency: "NPR" }, token)).body.data;
+    const t = (await c.post("/v1/transactions", { accountId: online.id, kind: "expense", amountMinor: 867_400, occurredAt: "2025-10-01T13:12:00Z" }, token)).body.data;
+    const moved = (await c.patch(`/v1/transactions/${t.id}`, { accountId: cash.id }, token)).body.data;
+    expect(moved).toMatchObject({ accountId: cash.id, currency: "THB", amountMinor: 867_400, baseAmountMinor: 867_400 });
+    const bal = async (id: string) => (await c.get("/v1/accounts", token)).body.data.find((a: any) => a.id === id).balanceMinor;
+    expect(await bal(online.id)).toBe(0);
+    expect(await bal(cash.id)).toBe(-867_400);
+    // to an NPR account: the number stays, now in NPR, converted to THB at the rate given (or that day's stored rate)
+    const toNpr = (await c.patch(`/v1/transactions/${t.id}`, { accountId: npr.id, fxRate: 0.24 }, token)).body.data;
+    expect(toNpr).toMatchObject({ accountId: npr.id, currency: "NPR", amountMinor: 867_400, baseAmountMinor: 208_176 });
+    expect((await c.patch(`/v1/transactions/${t.id}`, { accountId: "00000000-0000-4000-8000-000000000000" }, token)).status).toBe(422);
+  });
 });
 
 describe("insights", () => {

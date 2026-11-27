@@ -41,6 +41,8 @@ export const createTransactionSchema = z.object({
 });
 export const updateTransactionSchema = z
   .object({
+    /** Move it to another account. In an account with another currency the amount is kept as entered, in that currency. */
+    accountId: uuid,
     amountMinor,
     categoryId: uuid.nullable(),
     occurredAt: z.coerce.date(),

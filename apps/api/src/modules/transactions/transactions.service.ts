@@ -156,7 +156,7 @@ export class TransactionsService {
     const cur = await this.get(userId, id);
     const user = await this.getUser(userId);
     const isTransfer = cur.kind === "transfer_in" || cur.kind === "transfer_out";
-    if (isTransfer && (input.amountMinor !== undefined || input.categoryId !== undefined || input.fxRate !== undefined)) {
+    if (isTransfer && (input.amountMinor !== undefined || input.categoryId !== undefined || input.fxRate !== undefined || (input.accountId !== undefined && input.accountId !== cur.accountId))) {
       throw unprocessable("transfer_immutable", "Delete and recreate a transfer to change its amount");
     }
     const patch: Partial<typeof transactions.$inferInsert> = { updatedAt: new Date(), version: cur.version + 1 };
@@ -169,7 +169,21 @@ export class TransactionsService {
       patch.occurredAt = input.occurredAt;
       patch.occurredOn = toLocalDate(input.occurredAt, user.timezone);
     }
-    if (input.amountMinor !== undefined || input.fxRate !== undefined) {
+    const moving = input.accountId !== undefined && input.accountId !== cur.accountId;
+    if (moving) {
+      const account = await this.getAccount(userId, input.accountId!);
+      patch.accountId = account.id;
+      if (account.currency !== cur.currency) {
+        // another currency: the number stays, it's now in the new account's currency, re-priced at that day's rate
+        const amount = input.amountMinor ?? cur.amountMinor;
+        const rate = await this.fxFor(account.currency, user.baseCurrency, patch.occurredOn ?? cur.occurredOn, input.fxRate);
+        patch.currency = account.currency;
+        patch.amountMinor = amount;
+        patch.fxRate = String(rate);
+        patch.baseAmountMinor = convertMinor(amount, account.currency, user.baseCurrency, rate);
+      }
+    }
+    if (!(moving && patch.currency) && (input.amountMinor !== undefined || input.fxRate !== undefined)) {
       const rate = input.fxRate ?? cur.fxRate;
       const amount = input.amountMinor ?? cur.amountMinor;
       patch.amountMinor = amount;
