@@ -200,5 +200,7 @@ Migration + RLS, Zod schema in `packages/shared`, OpenAPI updated, unit tests fo
 
 - 2026-11-27 (later): **Themed drop-downs and date pickers.** Every form drop-down is now an MUI Select and every date / date-time field an MUI DatePicker / DateTimePicker (`@mui/x-date-pickers` + `dayjs`), styled from the app's CSS tokens in light and dark (menus, group headings, calendar, time columns, phone-size picker). Done once in the shared controls (`components/form-controls.tsx`, used by `Select` / `Input type="date|datetime-local"` in `ui.tsx`), so forms keep their old API: `<option>`/`<optgroup>` children, `name` in FormData, ISO date strings. `Field` now labels its control through context; the currency picker is `CurrencySelect`. Pop-ups mount inside the open `<dialog>` (top layer) and dialogs scroll their body instead of clipping. Web only.
 
+- 2026-11-27 (later): Record lists cap at 550px (was 600); the Transactions page no longer has the cap — its day cards scroll with the page. The asset page's entries stay at 500px. Web only.
+
 ## 12. Backlog (add ideas here)
 - Open-banking aggregation (where supported), Android SMS parsing, home-screen widgets, receipts → line-item split, tax reports, net-worth snapshots, scheduled email reports, shared/family spaces, public API tokens, CSV templates for common banks.
