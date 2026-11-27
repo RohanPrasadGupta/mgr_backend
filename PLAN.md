@@ -202,5 +202,7 @@ Migration + RLS, Zod schema in `packages/shared`, OpenAPI updated, unit tests fo
 
 - 2026-11-27 (later): Record lists cap at 550px (was 600); the Transactions page no longer has the cap — its day cards scroll with the page. The asset page's entries stay at 500px. Web only.
 
+- 2026-11-27 (later): **Fix: forms closed when a drop-down was opened.** The shared form dialog closed on any click reported on the dialog itself; opening a drop-down puts its menu under the pointer between press and release, so the browser reported that click on the dialog. It now closes only when the press also started on the backdrop, and Escape with a menu/calendar open closes just that pop-up. Covers every add/edit form (all use the shared `Modal`). Web only.
+
 ## 12. Backlog (add ideas here)
 - Open-banking aggregation (where supported), Android SMS parsing, home-screen widgets, receipts → line-item split, tax reports, net-worth snapshots, scheduled email reports, shared/family spaces, public API tokens, CSV templates for common banks.
