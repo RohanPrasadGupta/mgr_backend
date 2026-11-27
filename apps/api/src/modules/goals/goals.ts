@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Injectable, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { createGoalSchema, goalContributionSchema, toLocalDate, updateGoalSchema, type CreateGoalInput, type GoalContributionInput, type UpdateGoalInput } from "@moneymgr/shared";
+import { createGoalSchema, goalContributionSchema, toLocalDate, updateGoalContributionSchema, updateGoalSchema, type CreateGoalInput, type GoalContributionInput, type UpdateGoalContributionInput, type UpdateGoalInput } from "@moneymgr/shared";
 import { z } from "zod";
 import { DB, type Db } from "../../db/db";
 import { accounts, goalContributions, goals, transactions, users } from "../../db/schema";
@@ -111,6 +111,14 @@ export class GoalsService {
     const { userId: _u, ...c } = row!;
     return c;
   }
+  async updateContribution(userId: string, goalId: string, id: string, b: UpdateGoalContributionInput) {
+    const where = and(eq(goalContributions.id, id), eq(goalContributions.goalId, goalId), eq(goalContributions.userId, userId));
+    const [cur] = await this.db.select().from(goalContributions).where(where);
+    if (!cur) throw notFound("Contribution");
+    const [row] = Object.keys(b).length ? await this.db.update(goalContributions).set(b).where(where).returning() : [cur];
+    const { userId: _u, ...c } = row!;
+    return c;
+  }
   async removeContribution(userId: string, goalId: string, id: string) {
     const [row] = await this.db.delete(goalContributions).where(and(eq(goalContributions.id, id), eq(goalContributions.goalId, goalId), eq(goalContributions.userId, userId))).returning({ id: goalContributions.id });
     if (!row) throw notFound("Contribution");
@@ -128,5 +136,6 @@ export class GoalsController {
   @Patch(":id") async update(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(updateGoalSchema)) b: UpdateGoalInput) { return { data: await this.svc.update(u, id, b) }; }
   @Delete(":id") @HttpCode(204) async remove(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string) { await this.svc.remove(u, id); }
   @Post(":id/contributions") async contribute(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(goalContributionSchema)) b: GoalContributionInput) { return { data: await this.svc.contribute(u, id, b) }; }
+  @Patch(":id/contributions/:cid") async updateContribution(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Param("cid", ParseUUIDPipe) cid: string, @Body(new ZodPipe(updateGoalContributionSchema)) b: UpdateGoalContributionInput) { return { data: await this.svc.updateContribution(u, id, cid, b) }; }
   @Delete(":id/contributions/:cid") @HttpCode(204) async removeContribution(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Param("cid", ParseUUIDPipe) cid: string) { await this.svc.removeContribution(u, id, cid); }
 }

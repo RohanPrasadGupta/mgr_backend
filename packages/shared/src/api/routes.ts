@@ -11,7 +11,7 @@ import {
 import { importCategoriesSchema, importTransactionsSchema } from "../schemas/ledger";
 import { changePasswordSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from "../schemas/auth";
 import {
-  createDebtSchema, createGoalSchema, createNoteSchema, importNotesSchema, createTagSchema, debtPaymentSchema, goalContributionSchema, listDebtsSchema, listNotesSchema, reportQuerySchema,
+  createDebtSchema, createGoalSchema, createNoteSchema, importNotesSchema, createTagSchema, debtPaymentSchema, goalContributionSchema, updateDebtPaymentSchema, updateGoalContributionSchema, listDebtsSchema, listNotesSchema, reportQuerySchema,
   updateDebtSchema, updateGoalSchema, updateNoteSchema, updateTagSchema,
 } from "../schemas/planning";
 import { currencyCode, isoDate } from "../schemas/common";
@@ -134,6 +134,7 @@ export const routes: RouteDef[] = [
   r("patch", "/goals/{id}", "updateGoal", "Goals", "Update a goal", 200, data(R.Goal), { body: updateGoalSchema }),
   r("delete", "/goals/{id}", "deleteGoal", "Goals", "Delete a goal and its contributions", 204, null),
   r("post", "/goals/{id}/contributions", "addGoalContribution", "Goals", "Add (or withdraw) money toward a goal", 201, data(R.GoalContribution), { body: goalContributionSchema }),
+  r("patch", "/goals/{id}/contributions/{contributionId}", "updateGoalContribution", "Goals", "Edit a contribution", 200, data(R.GoalContribution), { body: updateGoalContributionSchema }),
   r("delete", "/goals/{id}/contributions/{contributionId}", "deleteGoalContribution", "Goals", "Delete a contribution", 204, null),
 
   r("get", "/debts", "listDebts", "Debts", "List debts (open by default)", 200, list(R.Debt), { query: listDebtsSchema }),
@@ -143,6 +144,7 @@ export const routes: RouteDef[] = [
   r("patch", "/debts/{id}", "updateDebt", "Debts", "Update a debt", 200, data(R.Debt), { body: updateDebtSchema }),
   r("delete", "/debts/{id}", "deleteDebt", "Debts", "Delete a debt and its payments", 204, null),
   r("post", "/debts/{id}/payments", "addDebtPayment", "Debts", "Record a repayment", 201, data(R.DebtPayment), { body: debtPaymentSchema }),
+  r("patch", "/debts/{id}/payments/{paymentId}", "updateDebtPayment", "Debts", "Edit a repayment (still no more than the amount owed)", 200, data(R.DebtPayment), { body: updateDebtPaymentSchema }),
   r("delete", "/debts/{id}/payments/{paymentId}", "deleteDebtPayment", "Debts", "Delete a repayment", 204, null),
 
   r("get", "/notes", "listNotes", "Notes", "List notes (pinned first), optional search", 200, list(R.Note), { query: listNotesSchema }),

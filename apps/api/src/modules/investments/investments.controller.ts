@@ -15,7 +15,7 @@ export class InvestmentsController {
   constructor(@Inject(InvestmentsService) private readonly svc: InvestmentsService) {}
 
   @Get("investments/portfolio") async portfolio(@UserId() u: string) { return { data: await this.svc.portfolio(u) }; }
-  @Get("investments/portfolio/history") async history(@UserId() u: string, @Query(new ZodPipe(portfolioHistorySchema)) q: PortfolioHistoryInput) { return { data: await this.svc.portfolioHistory(u, q.months) }; }
+  @Get("investments/portfolio/history") async history(@UserId() u: string, @Query(new ZodPipe(portfolioHistorySchema)) q: PortfolioHistoryInput) { return { data: await this.svc.portfolioHistory(u, q.all === "true" ? "all" : q.months, q.currency) }; }
 
   @Get("investments/assets") async assets(@UserId() u: string, @Query(new ZodPipe(archivedQ)) q: z.infer<typeof archivedQ>) { return { data: await this.svc.listHoldings(u, q.archived === "true") }; }
   @Post("investments/assets") async createAsset(@UserId() u: string, @Body(new ZodPipe(createAssetSchema)) b: CreateAssetInput) { return { data: await this.svc.createAsset(u, b) }; }

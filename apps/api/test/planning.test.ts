@@ -114,6 +114,11 @@ describe("goals", () => {
     expect(d.goal).toMatchObject({ savedMinor: 25_000, remainingMinor: 25_000, pct: 50 });
     expect(d.contributions).toHaveLength(2);
     expect((await c.post(`/v1/goals/${goal.id}/contributions`, { amountMinor: 0 }, t)).status).toBe(400);
+    const e = (await c.patch(`/v1/goals/${goal.id}/contributions/${w.id}`, { amountMinor: -2_000, occurredOn: "2026-01-06", note: null }, t)).body.data;
+    expect(e).toMatchObject({ amountMinor: -2_000, occurredOn: "2026-01-06", note: null });
+    expect((await c.get(`/v1/goals/${goal.id}`, t)).body.data.goal.savedMinor).toBe(28_000);
+    expect((await c.patch(`/v1/goals/${goal.id}/contributions/${w.id}`, { amountMinor: 0 }, t)).status).toBe(400);
+    expect((await c.patch(`/v1/goals/${goal.id}/contributions/${goal.id}`, { amountMinor: 1 }, t)).status).toBe(404);
     await c.del(`/v1/goals/${goal.id}/contributions/${w.id}`, t);
     expect((await c.get("/v1/goals", t)).body.data[0].savedMinor).toBe(30_000);
   });
@@ -152,6 +157,12 @@ describe("debts", () => {
       { currency: "THB", owedToMeMinor: 20_000, iOweMinor: 0, netMinor: 20_000 },
       { currency: "USD", owedToMeMinor: 0, iOweMinor: 20_000, netMinor: -20_000 },
     ]);
+    const first = (await c.get(`/v1/debts/${lent.id}`, t)).body.data.payments[0];
+    // editing a repayment may use what is outstanding plus its own amount, no more
+    expect((await c.patch(`/v1/debts/${lent.id}/payments/${first.id}`, { amountMinor: 70_001 }, t)).body.error.code).toBe("overpayment");
+    expect((await c.patch(`/v1/debts/${lent.id}/payments/${first.id}`, { amountMinor: 40_000, paidOn: "2026-02-02", note: "cash" }, t)).body.data).toMatchObject({ amountMinor: 40_000, paidOn: "2026-02-02", note: "cash" });
+    expect((await c.get(`/v1/debts/${lent.id}`, t)).body.data.debt.outstandingMinor).toBe(30_000);
+    await c.patch(`/v1/debts/${lent.id}/payments/${first.id}`, { amountMinor: 50_000 }, t);
     const p = (await c.post(`/v1/debts/${lent.id}/payments`, { amountMinor: 20_000 }, t)).body.data;
     expect((await c.get(`/v1/debts/${lent.id}`, t)).body.data.debt).toMatchObject({ status: "settled", outstandingMinor: 0, paidMinor: 70_000 });
     expect((await c.get("/v1/debts", t)).body.data.map((d: any) => d.counterparty)).toEqual(["Bank"]);
@@ -160,6 +171,20 @@ describe("debts", () => {
     await c.del(`/v1/debts/${lent.id}/payments/${p.id}`, t);
     expect((await c.get(`/v1/debts/${lent.id}`, t)).body.data.debt.status).toBe("open");
     expect((await c.del(`/v1/debts/${lent.id}`, t)).status).toBe(204);
+  });
+  it("changes a debt's currency as a relabel; the amounts follow the new currency's decimals", async () => {
+    const d = (await c.post("/v1/debts", { direction: "borrowed", counterparty: "Nafees", principalMinor: 200_000, currency: "NPR" }, t)).body.data;
+    await c.post(`/v1/debts/${d.id}/payments`, { amountMinor: 50_000 }, t);
+    const thb = (await c.patch(`/v1/debts/${d.id}`, { currency: "THB" }, t)).body.data;
+    expect(thb).toMatchObject({ currency: "THB", principalMinor: 200_000, paidMinor: 50_000, outstandingMinor: 150_000 });
+    const jpy = (await c.patch(`/v1/debts/${d.id}`, { currency: "JPY" }, t)).body.data; // 0 decimals: 2,000.00 → 2,000
+    expect(jpy).toMatchObject({ currency: "JPY", principalMinor: 2_000, paidMinor: 500 });
+    expect((await c.get(`/v1/debts/${d.id}`, t)).body.data.payments[0].amountMinor).toBe(500);
+    // amount and currency together: the amount is in the new currency
+    expect((await c.patch(`/v1/debts/${d.id}`, { currency: "NPR", principalMinor: 300_000 }, t)).body.data).toMatchObject({ currency: "NPR", principalMinor: 300_000, paidMinor: 50_000 });
+    expect((await c.patch(`/v1/debts/${d.id}`, { currency: "THB", principalMinor: 100 }, t)).body.error.code).toBe("principal_below_paid");
+    expect((await c.patch(`/v1/debts/${d.id}`, { currency: "ZZZ" }, t)).body.error.code).toBe("unsupported_currency");
+    expect((await c.get("/v1/me", t)).body.data.currencies).toEqual(expect.arrayContaining(["NPR", "THB", "JPY"]));
   });
   it("validates dates", async () => {
     expect((await c.post("/v1/debts", { direction: "lent", counterparty: "A", principalMinor: 1, startedOn: "2026-02-01", dueOn: "2026-01-01" }, t)).status).toBe(400);

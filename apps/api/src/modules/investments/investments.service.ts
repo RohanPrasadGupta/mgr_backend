@@ -322,24 +322,33 @@ export class InvestmentsService {
    * when there is none yet — the same rule as `portfolio()`), converted at that date's stored FX rate. The last point is today,
    * so it matches the portfolio totals. Months before the first trade are left out.
    */
-  async portfolioHistory(userId: string, months: number) {
+  /** Month-end value vs invested, shown in `currency` (default base). `months: "all"` runs from the first entry's month to today. */
+  async portfolioHistory(userId: string, months: number | "all", currency?: string) {
     const user = await this.getUser(userId);
     const today = toLocalDate(new Date(), user.timezone);
-    const base = user.baseCurrency;
+    const base = currency ?? user.baseCurrency;
+    if (currency && currency !== user.baseCurrency) {
+      const [c] = await this.db.select({ code: currencies.code }).from(currencies).where(eq(currencies.code, currency));
+      if (!c) throw unprocessable("unsupported_currency", `Currency ${currency} is not supported`);
+    }
     const list = await this.db.select().from(assets).where(and(eq(assets.userId, userId), isNull(assets.deletedAt), eq(assets.archived, false)));
     const ids = list.map((a) => a.id);
     const allTrades = ids.length ? await this.db.select().from(trades).where(and(eq(trades.userId, userId), isNull(trades.deletedAt), inArray(trades.assetId, ids))).orderBy(asc(trades.createdAt), asc(trades.id)) : [];
     const allPrices = ids.length ? await this.db.select({ assetId: assetPrices.assetId, asOn: assetPrices.asOn, priceMinor: assetPrices.priceMinor }).from(assetPrices).where(inArray(assetPrices.assetId, ids)).orderBy(asc(assetPrices.asOn)) : [];
 
+    const firstTrade = allTrades.reduce<string | null>((min, t) => (min === null || t.tradedOn < min ? t.tradedOn : min), null);
     // month ends, oldest first; the current month ends today
     const [ty, tm] = today.split("-").map(Number) as [number, number];
+    if (months === "all") {
+      const [fy, fm] = (firstTrade ?? today).split("-").map(Number) as [number, number];
+      months = Math.max(2, ty * 12 + tm - (fy * 12 + fm) + 1);
+    }
     const dates: string[] = [];
     for (let i = months - 1; i >= 0; i--) {
       const idx = ty * 12 + (tm - 1) - i;
       const y = Math.floor(idx / 12), m = (idx % 12) + 1;
       dates.push(i === 0 ? today : monthRange(y, m).to);
     }
-    const firstTrade = allTrades.reduce<string | null>((min, t) => (min === null || t.tradedOn < min ? t.tradedOn : min), null);
     const visible = firstTrade === null ? [] : dates.filter((d) => d.slice(0, 7) >= firstTrade.slice(0, 7)); // from the first trade's month on
 
     const excluded: { assetId: string; symbol: string; reason: string }[] = [];
@@ -370,6 +379,6 @@ export class InvestmentsService {
       }
       points.push({ date, valueMinor: value, investedMinor: invested });
     }
-    return { baseCurrency: base, asOf: today, points, approximate: true, excluded };
+    return { baseCurrency: user.baseCurrency, currency: base, asOf: today, points, approximate: true, excluded };
   }
 }

@@ -30,6 +30,9 @@ export const goalContributionSchema = z.object({
   occurredOn: isoDate.optional(),
   note: z.string().max(300).optional(),
 });
+export const updateGoalContributionSchema = z.object({
+  amountMinor: goalContributionSchema.shape.amountMinor, occurredOn: isoDate, note: z.string().max(300).nullable(),
+}).partial();
 
 // ── debts ──
 export const debtDirections = ["lent", "borrowed"] as const;
@@ -42,8 +45,10 @@ export const createDebtSchema = z.object({
   dueOn: isoDate.optional(),
   note: note.optional(),
 }).refine((d) => !d.startedOn || !d.dueOn || d.dueOn >= d.startedOn, { message: "dueOn must be on or after startedOn", path: ["dueOn"] });
-export const updateDebtSchema = z.object({ counterparty: name, principalMinor: amountMinor, dueOn: isoDate.nullable(), note: note.nullable() }).partial();
+/** `currency` relabels the debt (numbers stay as typed); a `principalMinor` sent with it is in the new currency. */
+export const updateDebtSchema = z.object({ counterparty: name, principalMinor: amountMinor, currency: currencyCode, dueOn: isoDate.nullable(), note: note.nullable() }).partial();
 export const debtPaymentSchema = z.object({ amountMinor, paidOn: isoDate.optional(), note: z.string().max(300).optional() });
+export const updateDebtPaymentSchema = z.object({ amountMinor, paidOn: isoDate, note: z.string().max(300).nullable() }).partial();
 export const listDebtsSchema = z.object({ status: z.enum(["open", "settled", "all"]).default("open") });
 
 // ── notes ──
@@ -76,6 +81,8 @@ export type GoalContributionInput = z.infer<typeof goalContributionSchema>;
 export type CreateDebtInput = z.infer<typeof createDebtSchema>;
 export type UpdateDebtInput = z.infer<typeof updateDebtSchema>;
 export type DebtPaymentInput = z.infer<typeof debtPaymentSchema>;
+export type UpdateDebtPaymentInput = z.infer<typeof updateDebtPaymentSchema>;
+export type UpdateGoalContributionInput = z.infer<typeof updateGoalContributionSchema>;
 export type CreateNoteInput = z.infer<typeof createNoteSchema>;
 export type UpdateNoteInput = z.infer<typeof updateNoteSchema>;
 export type ImportNotesInput = z.infer<typeof importNotesSchema>;

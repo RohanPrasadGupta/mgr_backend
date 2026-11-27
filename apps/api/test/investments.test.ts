@@ -260,6 +260,19 @@ describe("portfolio history", () => {
     expect(h.points).toEqual([{ date: h.asOf, valueMinor: 0, investedMinor: 0 }]);
     expect((await c.get("/v1/investments/portfolio/history?months=500", token)).status).toBe(400);
   });
+
+  it("shows the history in another currency and over all time", async () => {
+    const { token } = await registerUser(c);
+    const coin = await mkAsset(token, { symbol: "BTC" });
+    await c.patch(`/v1/investments/assets/${coin.id}`, { convertCurrency: "NPR", convertRate: 4 }, token);
+    await c.post("/v1/investments/trades", { assetId: coin.id, type: "buy", quantity: 1, priceMinor: 1000, tradedOn: `${ym(14)}-03` }, token);
+    const h = (await c.get("/v1/investments/portfolio/history?currency=NPR&all=true", token)).body.data;
+    expect(h).toMatchObject({ baseCurrency: "THB", currency: "NPR" });
+    expect(h.points).toHaveLength(15); // first entry's month → this month, not the 12-month default
+    expect(h.points[0]).toMatchObject({ valueMinor: 4000, investedMinor: 4000 }); // THB 10.00 × 4 = NPR 40.00
+    expect((await c.get("/v1/investments/portfolio/history", token)).body.data).toMatchObject({ currency: "THB" });
+    expect((await c.get("/v1/investments/portfolio/history?currency=ZZZ", token)).body.error.code).toBe("unsupported_currency");
+  });
 });
 
 describe("calc", () => {

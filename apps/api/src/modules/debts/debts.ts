@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Injectable, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
-  createDebtSchema, debtPaymentSchema, listDebtsSchema, toLocalDate, updateDebtSchema, type CreateDebtInput, type DebtPaymentInput, type UpdateDebtInput,
+  createDebtSchema, debtPaymentSchema, listDebtsSchema, minorUnit, toLocalDate, updateDebtPaymentSchema, updateDebtSchema, type CreateDebtInput, type DebtPaymentInput, type UpdateDebtInput, type UpdateDebtPaymentInput,
 } from "@moneymgr/shared";
 import { DB, type Db } from "../../db/db";
 import { currencies, debtPayments, debts, users } from "../../db/schema";
@@ -74,12 +74,32 @@ export class DebtsService {
   async update(userId: string, id: string, b: UpdateDebtInput) {
     const cur = await this.row(userId, id);
     if (b.dueOn && b.dueOn < cur.startedOn) throw unprocessable("invalid_due_date", "dueOn must be on or after the start date");
-    if (b.principalMinor !== undefined) {
-      const { debt } = await this.get(userId, id);
-      if (b.principalMinor < debt.paidMinor) throw unprocessable("principal_below_paid", "The amount can't be less than what has already been repaid");
+    const { currency, ...rest } = b;
+    const moving = currency !== undefined && currency !== cur.currency;
+    if (moving) {
+      const [c] = await this.db.select().from(currencies).where(eq(currencies.code, currency));
+      if (!c) throw unprocessable("unsupported_currency", `Currency ${currency} is not supported`);
     }
-    const [row] = await this.db.update(debts).set({ ...b, updatedAt: new Date() }).where(and(eq(debts.id, id), eq(debts.userId, userId))).returning();
-    return (await this.decorate(userId, [row!]))[0]!;
+    // A relabel, not a conversion: "NPR 2,000" becomes "THB 2,000". Only the stored minor units follow the new
+    // currency's decimals (e.g. NPR 2 → JPY 0), for the principal and every repayment alike.
+    const shift = moving ? 10 ** (minorUnit(currency) - minorUnit(cur.currency)) : 1;
+    if (rest.principalMinor !== undefined || shift !== 1) {
+      const { debt } = await this.get(userId, id);
+      const principal = rest.principalMinor ?? Math.round(cur.principalMinor * shift);
+      if (principal < Math.round(debt.paidMinor * shift)) throw unprocessable("principal_below_paid", "The amount can't be less than what has already been repaid");
+      if (rest.principalMinor === undefined) rest.principalMinor = principal;
+    }
+    const row = await this.db.transaction(async (tx) => {
+      if (shift !== 1) {
+        // a power of ten computed above (never user input), written as a numeric literal so Postgres knows its type
+        const k = sql.raw(`${shift}::numeric`);
+        await tx.update(debtPayments).set({ amountMinor: sql`round(${debtPayments.amountMinor} * ${k})` }).where(eq(debtPayments.debtId, id));
+      }
+      const [r] = await tx.update(debts).set({ ...rest, ...(moving ? { currency } : {}), updatedAt: new Date() }).where(and(eq(debts.id, id), eq(debts.userId, userId))).returning();
+      if (moving) await rememberCurrency(tx, userId, currency);
+      return r!;
+    });
+    return (await this.decorate(userId, [row]))[0]!;
   }
   async remove(userId: string, id: string) {
     const [row] = await this.db.delete(debts).where(and(eq(debts.id, id), eq(debts.userId, userId))).returning({ id: debts.id });
@@ -90,6 +110,19 @@ export class DebtsService {
     if (b.amountMinor > debt.outstandingMinor) throw unprocessable("overpayment", debt.outstandingMinor === 0 ? "This debt is already settled" : "The payment is more than what is still outstanding");
     const u = await this.user(userId);
     const [row] = await this.db.insert(debtPayments).values({ userId, debtId: id, amountMinor: b.amountMinor, paidOn: b.paidOn ?? toLocalDate(new Date(), u.timezone), note: b.note }).returning();
+    const { userId: _u, ...p } = row!;
+    return p;
+  }
+  async updatePayment(userId: string, debtId: string, id: string, b: UpdateDebtPaymentInput) {
+    const where = and(eq(debtPayments.id, id), eq(debtPayments.debtId, debtId), eq(debtPayments.userId, userId));
+    const [cur] = await this.db.select().from(debtPayments).where(where);
+    if (!cur) throw notFound("Payment");
+    if (b.amountMinor !== undefined && b.amountMinor !== cur.amountMinor) {
+      const { debt } = await this.get(userId, debtId);
+      // what is left once this payment is taken out, then put back at its new amount
+      if (b.amountMinor > debt.outstandingMinor + cur.amountMinor) throw unprocessable("overpayment", "The payment is more than what is still outstanding");
+    }
+    const [row] = Object.keys(b).length ? await this.db.update(debtPayments).set(b).where(where).returning() : [cur];
     const { userId: _u, ...p } = row!;
     return p;
   }
@@ -109,5 +142,6 @@ export class DebtsController {
   @Patch(":id") async update(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(updateDebtSchema)) b: UpdateDebtInput) { return { data: await this.svc.update(u, id, b) }; }
   @Delete(":id") @HttpCode(204) async remove(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string) { await this.svc.remove(u, id); }
   @Post(":id/payments") async pay(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(debtPaymentSchema)) b: DebtPaymentInput) { return { data: await this.svc.pay(u, id, b) }; }
+  @Patch(":id/payments/:pid") async updatePayment(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Param("pid", ParseUUIDPipe) pid: string, @Body(new ZodPipe(updateDebtPaymentSchema)) b: UpdateDebtPaymentInput) { return { data: await this.svc.updatePayment(u, id, pid, b) }; }
   @Delete(":id/payments/:pid") @HttpCode(204) async removePayment(@UserId() u: string, @Param("id", ParseUUIDPipe) id: string, @Param("pid", ParseUUIDPipe) pid: string) { await this.svc.removePayment(u, id, pid); }
 }

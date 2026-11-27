@@ -55,6 +55,22 @@ export class BudgetsService {
       if (!cur) throw notFound("Budget");
       return cur;
     }
+    if (input.endOn !== undefined) {
+      // `endOn: null` = repeats every period with no end; a date = it stops after that day
+      const [cur] = await this.db.select().from(budgets).where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+      if (!cur) throw notFound("Budget");
+      if (cur.period === "custom" && input.endOn === null) throw unprocessable("invalid_end_date", "A custom budget needs an end date");
+      if (input.endOn !== null && input.endOn < cur.startOn) throw unprocessable("invalid_end_date", "The end date can't be before the budget starts");
+      if (cur.period !== "custom") {
+        const others = await this.db
+          .select({ id: budgets.id, startOn: budgets.startOn, endOn: budgets.endOn })
+          .from(budgets)
+          .where(and(eq(budgets.userId, userId), eq(budgets.period, cur.period), cur.categoryId ? eq(budgets.categoryId, cur.categoryId) : isNull(budgets.categoryId)));
+        const end = input.endOn;
+        if (others.some((o) => o.id !== id && (!o.endOn || o.endOn >= cur.startOn) && (end === null || o.startOn <= end)))
+          throw conflict("budget_exists", "Another budget for this category and period would overlap");
+      }
+    }
     const [row] = await this.db.update(budgets).set(input).where(and(eq(budgets.id, id), eq(budgets.userId, userId))).returning();
     if (!row) throw notFound("Budget");
     return row;

@@ -76,6 +76,21 @@ describe("budgets", () => {
     expect((await c.del(`/v1/budgets/${id}`, token)).status).toBe(204);
     expect((await c.get("/v1/budgets", token)).body.data).toHaveLength(0);
   });
+
+  it("repeats every month until switched off; switching it back on can't overlap another budget", async () => {
+    const { token, cat } = await setup();
+    const b = (await c.post("/v1/budgets", { period: "month", amountMinor: 5_000, categoryId: cat("Food").id, startOn: "2025-01-01" }, token)).body.data;
+    expect(b.endOn).toBeNull();
+    const on = async (date: string) => (await c.get(`/v1/budgets/status?date=${date}`, token)).body.data.items.length;
+    expect(await on("2027-06-15")).toBe(1); // no end: still running years later
+    await c.patch(`/v1/budgets/${b.id}`, { endOn: "2025-03-31" }, token);
+    expect([await on("2025-03-15"), await on("2025-04-15")]).toEqual([1, 0]);
+    expect((await c.patch(`/v1/budgets/${b.id}`, { endOn: "2024-12-31" }, token)).body.error.code).toBe("invalid_end_date");
+    const next = (await c.post("/v1/budgets", { period: "month", amountMinor: 9_000, categoryId: cat("Food").id, startOn: "2025-05-01" }, token)).body.data;
+    expect((await c.patch(`/v1/budgets/${b.id}`, { endOn: null }, token)).body.error.code).toBe("budget_exists");
+    await c.del(`/v1/budgets/${next.id}`, token);
+    expect((await c.patch(`/v1/budgets/${b.id}`, { endOn: null }, token)).body.data.endOn).toBeNull();
+  });
 });
 
 describe("recurring", () => {

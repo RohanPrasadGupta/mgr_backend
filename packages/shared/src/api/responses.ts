@@ -103,7 +103,9 @@ export const Portfolio = named("Portfolio", obj({
   excluded: z.array(obj({ assetId: uuid, symbol: z.string(), reason: z.string() })),
 }));
 export const PortfolioHistory = named("PortfolioHistory", obj({
-  baseCurrency: z.string(), asOf: date,
+  baseCurrency: z.string(),
+  /** The currency every amount below is in (the requested one, else the base). */
+  currency: z.string(), asOf: date,
   /** One point per month end (the last one is today): market value (unpriced holdings at cost) and the cost still invested. */
   points: z.array(obj({ date, valueMinor: money, investedMinor: money })),
   approximate: z.boolean(),

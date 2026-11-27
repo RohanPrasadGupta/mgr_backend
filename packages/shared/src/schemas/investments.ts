@@ -77,7 +77,13 @@ export const listTradesSchema = z.object({
 });
 export const setPriceSchema = z.object({ asOn: isoDate.optional(), priceMinor: z.number().positive().max(1e15) });
 /** How many month-ends of portfolio history to return (the current month ends today). */
-export const portfolioHistorySchema = z.object({ months: z.coerce.number().int().min(1).max(120).default(12) });
+export const portfolioHistorySchema = z.object({
+  months: z.coerce.number().int().min(1).max(120).default(12),
+  /** "true": every month from the first entry to today (ignores `months`). */
+  all: z.enum(["true", "false"]).optional(),
+  /** Currency the chart is shown in (default: the base currency). */
+  currency: currencyCode.optional(),
+});
 export type PortfolioHistoryInput = z.infer<typeof portfolioHistorySchema>;
 export const sipCalcSchema = z.object({ monthly: z.number().positive().max(1e12), annualRatePct: z.number().min(0).max(100), years: z.number().positive().max(80) });
 
